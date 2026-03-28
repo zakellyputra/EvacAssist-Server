@@ -5,43 +5,108 @@ import User from '../models/User.js';
 
 const router = Router();
 
+function normalizeUsername(username = '') {
+  return username.trim().toLowerCase();
+}
+
 function issueTokens(user) {
-  const payload = { id: user._id, role: user.role };
+  const payload = { id: user._id, role: user.role, username: user.username };
   const access_token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '15m' });
   const refresh_token = jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: '7d' });
   return { access_token, refresh_token };
 }
 
-// POST /api/auth/register
 router.post('/register', async (req, res) => {
-  const { name, phone, role, vehicle, wallet_address } = req.body;
-  const phone_hash = await bcrypt.hash(phone, 10);
-  const user = await User.create({ name, phone_hash, role, vehicle, wallet_address });
-  res.status(201).json({ user_id: user._id, ...issueTokens(user) });
+  try {
+    const { name, username, password, role = 'rider', vehicle, wallet_address } = req.body;
+
+    if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
+    if (!username?.trim()) return res.status(400).json({ error: 'username is required' });
+    if (!password || password.length < 8) {
+      return res.status(400).json({ error: 'password must be at least 8 characters' });
+    }
+    if (!['rider', 'driver'].includes(role)) {
+      return res.status(400).json({ error: 'role must be rider or driver' });
+    }
+
+    const username_normalized = normalizeUsername(username);
+    const existing = await User.findOne({ username_normalized });
+    if (existing) {
+      return res.status(409).json({ error: 'Username is already taken' });
+    }
+
+    const password_hash = await bcrypt.hash(password, 10);
+    const approval_status = role === 'driver' ? 'pending' : 'approved';
+    const user = await User.create({
+      name: name.trim(),
+      username: username.trim(),
+      username_normalized,
+      password_hash,
+      role,
+      approval_status,
+      vehicle,
+      wallet_address,
+    });
+
+    if (role === 'driver') {
+      return res.status(202).json({
+        user_id: user._id,
+        approval_status: user.approval_status,
+        message: 'Driver account created and pending admin approval',
+      });
+    }
+
+    res.status(201).json({
+      user_id: user._id,
+      approval_status: user.approval_status,
+      ...issueTokens(user),
+    });
+  } catch (error) {
+    console.error('[auth/register]', error);
+    res.status(500).json({ error: 'Failed to register user' });
+  }
 });
 
-// POST /api/auth/login
 router.post('/login', async (req, res) => {
-  const { phone } = req.body;
-  // In a real system: find user by phone_hash comparison. For MVP, simplified.
-  const users = await User.find({});
-  const user = await Promise.any(
-    users.map(async (u) => {
-      const match = await bcrypt.compare(phone, u.phone_hash);
-      if (!match) throw new Error('no match');
-      return u;
-    })
-  ).catch(() => null);
-  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-  res.json(issueTokens(user));
+  try {
+    const { username, password } = req.body;
+    if (!username?.trim() || !password) {
+      return res.status(400).json({ error: 'username and password are required' });
+    }
+
+    const user = await User.findOne({ username_normalized: normalizeUsername(username) });
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+
+    if (user.role === 'driver' && user.approval_status !== 'approved') {
+      return res.status(403).json({
+        error: user.approval_status === 'rejected'
+          ? 'Driver account has been rejected'
+          : 'Driver account is pending admin approval',
+      });
+    }
+
+    res.json({
+      approval_status: user.approval_status,
+      ...issueTokens(user),
+    });
+  } catch (error) {
+    console.error('[auth/login]', error);
+    res.status(500).json({ error: 'Failed to sign in' });
+  }
 });
 
-// POST /api/auth/refresh
 router.post('/refresh', (req, res) => {
   const { refresh_token } = req.body;
   try {
     const payload = jwt.verify(refresh_token, process.env.JWT_REFRESH_SECRET);
-    const access_token = jwt.sign({ id: payload.id, role: payload.role }, process.env.JWT_SECRET, { expiresIn: '15m' });
+    const access_token = jwt.sign(
+      { id: payload.id, role: payload.role, username: payload.username },
+      process.env.JWT_SECRET,
+      { expiresIn: '15m' },
+    );
     res.json({ access_token });
   } catch {
     res.status(401).json({ error: 'Invalid refresh token' });

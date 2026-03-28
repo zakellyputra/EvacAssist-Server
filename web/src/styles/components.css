@@ -158,6 +158,7 @@
 .empty-state,
 .loading-state,
 .error-banner,
+.success-banner,
 .parsed-block {
   display: grid;
   gap: var(--space-2);
@@ -180,6 +181,12 @@
   background: rgba(240, 122, 115, 0.12);
   border: 1px solid rgba(240, 122, 115, 0.4);
   color: #ffd8d4;
+}
+
+.success-banner {
+  background: rgba(102, 187, 106, 0.12);
+  border: 1px solid rgba(102, 187, 106, 0.4);
+  color: #dbffe0;
 }
 
 .loading-state {
@@ -355,11 +362,19 @@
   border-color: var(--color-accent);
 }
 
+.inline-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
 @media (max-width: 840px) {
   .detail-grid,
   .filter-bar,
   .incident-card-header,
-  .list-row {
+  .list-row,
+  .inline-actions {
     grid-template-columns: 1fr;
     display: grid;
   }

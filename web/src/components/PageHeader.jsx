@@ -1,8 +1,8 @@
-export default function PageHeader({ title, subtitle, actions = null }) {
+export default function PageHeader({ title, subtitle, actions = null, eyebrow = 'Operations' }) {
   return (
     <div className="page-header">
       <div>
-        <p className="eyebrow">Operations</p>
+        <p className="eyebrow">{eyebrow}</p>
         <h2>{title}</h2>
         {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
       </div>
