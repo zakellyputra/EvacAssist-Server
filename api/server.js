@@ -14,6 +14,8 @@ import edgeRoutes from './routes/edges.js';
 import zoneRoutes from './routes/zones.js';
 import syncRoutes from './routes/sync.js';
 import paymentRoutes from './routes/payment.js';
+import userRoutes from './routes/users.js';
+import User from './models/User.js';
 
 import { verifyToken } from './middleware/auth.js';
 import { registerSocketEvents } from './socket/events.js';
@@ -53,6 +55,7 @@ app.use('/api/edges', edgeRoutes);
 app.use('/api/zones', zoneRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/users', userRoutes);
 
 // Health check
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
@@ -66,7 +69,8 @@ cron.schedule('0 * * * *', () => {
 // Connect to MongoDB Atlas then start server
 mongoose
   .connect(process.env.MONGODB_URI)
-  .then(() => {
+  .then(async () => {
+    await User.syncIndexes();
     console.log('MongoDB Atlas connected');
     httpServer.listen(process.env.PORT ?? 3000, () => {
       console.log(`Server running on port ${process.env.PORT ?? 3000}`);
