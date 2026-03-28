@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Incidents from './pages/Incidents';
 import Zones from './pages/Zones';
+import RequestEvacuation from './pages/RequestEvacuation';
 
 function PrivateRoute({ children }) {
   const { token } = useAuth();
@@ -15,6 +16,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/request" element={<RequestEvacuation />} />
       <Route
         element={
           <PrivateRoute>
