@@ -5,7 +5,9 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 function buildFeatureCollection(features) {
   return {
     type: 'FeatureCollection',
-    features: features.map((feature) => feature.geometry),
+    features: (Array.isArray(features) ? features : [])
+      .map((feature) => feature?.geometry)
+      .filter(Boolean),
   };
 }
 
@@ -17,16 +19,22 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
 
   selectedRef.current = selectedMapItem;
 
-  const zoneCollection = useMemo(() => buildFeatureCollection(data.zones), [data.zones]);
-  const alertCollection = useMemo(() => buildFeatureCollection(data.alertAreas), [data.alertAreas]);
+  const rideGroups = Array.isArray(data?.rideGroups) ? data.rideGroups : [];
+  const drivers = Array.isArray(data?.drivers) ? data.drivers : [];
+  const pickupPoints = Array.isArray(data?.pickupPoints) ? data.pickupPoints : [];
+  const zones = Array.isArray(data?.zones) ? data.zones : [];
+  const alertAreas = Array.isArray(data?.alertAreas) ? data.alertAreas : [];
+
+  const zoneCollection = useMemo(() => buildFeatureCollection(zones), [zones]);
+  const alertCollection = useMemo(() => buildFeatureCollection(alertAreas), [alertAreas]);
 
   useEffect(() => {
     if (mapRef.current) return;
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      center: data.center,
-      zoom: data.zoom,
+      center: data?.center ?? [-73.9857, 40.7484],
+      zoom: data?.zoom ?? 12,
       style: {
         version: 8,
         sources: {
@@ -67,9 +75,12 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
     const map = mapRef.current;
     if (!map) return undefined;
 
+    let isDisposed = false;
     let cleanup = () => {};
 
     function applyLayers() {
+      if (isDisposed) return;
+
       if (map.getSource('ops-zones')) {
         map.getSource('ops-zones').setData(zoneCollection);
       } else {
@@ -130,8 +141,16 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       map.on('click', 'ops-alert-areas-line', handleAlertClick);
 
       cleanup = () => {
-        if (map.getLayer('ops-zones-fill')) map.off('click', 'ops-zones-fill', handleZoneClick);
-        if (map.getLayer('ops-alert-areas-line')) map.off('click', 'ops-alert-areas-line', handleAlertClick);
+        if (isDisposed) return;
+        if (!mapRef.current || mapRef.current !== map) return;
+
+        try {
+          if (map.getLayer('ops-zones-fill')) map.off('click', 'ops-zones-fill', handleZoneClick);
+        } catch {}
+
+        try {
+          if (map.getLayer('ops-alert-areas-line')) map.off('click', 'ops-alert-areas-line', handleAlertClick);
+        } catch {}
       };
     }
 
@@ -139,6 +158,7 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
     else map.once('load', applyLayers);
 
     return () => {
+      isDisposed = true;
       cleanup();
     };
   }, [alertCollection, onSelect, zoneCollection]);
@@ -151,9 +171,15 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
     markerRefs.current = [];
 
     const entries = [
-      ...data.rideGroups.map((item) => ({ ...item, type: 'rideGroup', coordinates: item.coordinates, label: item.rideGroup.id })),
-      ...data.drivers.map((item) => ({ ...item, type: 'driver', coordinates: item.coordinates, label: item.unitId })),
-      ...data.pickupPoints.map((item) => ({ ...item, type: 'pickup', coordinates: item.coordinates, label: item.name })),
+      ...rideGroups
+        .filter((item) => item?.coordinates && item?.rideGroup?.id)
+        .map((item) => ({ ...item, type: 'rideGroup', coordinates: item.coordinates, label: item.rideGroup.id })),
+      ...drivers
+        .filter((item) => item?.coordinates && item?.unitId)
+        .map((item) => ({ ...item, type: 'driver', coordinates: item.coordinates, label: item.unitId })),
+      ...pickupPoints
+        .filter((item) => item?.coordinates && item?.name)
+        .map((item) => ({ ...item, type: 'pickup', coordinates: item.coordinates, label: item.name })),
     ];
 
     entries.forEach((entry) => {
@@ -169,7 +195,7 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
         .addTo(map);
       markerRefs.current.push(marker);
     });
-  }, [data.drivers, data.pickupPoints, data.rideGroups, onSelect, selectedMapItem]);
+  }, [drivers, onSelect, pickupPoints, rideGroups, selectedMapItem]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -178,13 +204,13 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
     let coordinates = null;
 
     if (selectedMapItem.type === 'rideGroup') {
-      coordinates = data.rideGroups.find((item) => item.id === selectedMapItem.id)?.coordinates ?? null;
+      coordinates = rideGroups.find((item) => item.id === selectedMapItem.id)?.coordinates ?? null;
     }
     if (selectedMapItem.type === 'driver') {
-      coordinates = data.drivers.find((item) => item.id === selectedMapItem.id)?.coordinates ?? null;
+      coordinates = drivers.find((item) => item.id === selectedMapItem.id)?.coordinates ?? null;
     }
     if (selectedMapItem.type === 'pickup') {
-      coordinates = data.pickupPoints.find((item) => item.id === selectedMapItem.id)?.coordinates ?? null;
+      coordinates = pickupPoints.find((item) => item.id === selectedMapItem.id)?.coordinates ?? null;
     }
 
     if (!coordinates) return;
@@ -195,7 +221,7 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       essential: true,
       duration: 700,
     });
-  }, [data.drivers, data.pickupPoints, data.rideGroups, selectedMapItem]);
+  }, [drivers, pickupPoints, rideGroups, selectedMapItem]);
 
   return <div ref={containerRef} className="live-map-canvas" />;
 }

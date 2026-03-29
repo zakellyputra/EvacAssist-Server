@@ -15,6 +15,23 @@ function formatDate(value) {
 }
 
 export default function AlertDetailDrawer({ alert, onClose }) {
+  if (!alert) {
+    return (
+      <aside className="detail-drawer" aria-label="Alert details unavailable">
+        <div className="detail-drawer-header">
+          <div className="detail-drawer-heading">
+            <p className="kicker">Alert Detail</p>
+            <h2>Unavailable</h2>
+            <p>The selected alert is no longer available in the current exception queue.</p>
+          </div>
+          <button type="button" className="button button-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
   const navigate = useNavigate();
   const { markAlertStatus, openAlertOnMap, openRelatedRideGroupFromAlert } = useOperations();
 

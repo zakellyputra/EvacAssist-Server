@@ -40,8 +40,29 @@ export default function MapDetailPanel({ selected }) {
     );
   }
 
+  if (!selected.item) {
+    return (
+      <aside className="map-detail-panel">
+        <div className="map-detail-empty">
+          <strong>Selected item unavailable</strong>
+          <p>The selected map entity no longer matches the current workspace state. Clear the selection and continue monitoring.</p>
+        </div>
+      </aside>
+    );
+  }
+
   if (selected.type === 'rideGroup') {
     const rideGroup = selected.item.rideGroup;
+    if (!rideGroup) {
+      return (
+        <aside className="map-detail-panel">
+          <div className="map-detail-empty">
+            <strong>Ride group unavailable</strong>
+            <p>This map marker no longer has an active ride group record attached.</p>
+          </div>
+        </aside>
+      );
+    }
     const linkedAlerts = alertsWithRelations.filter((alert) => rideGroup.linkedAlertIds.includes(alert.id));
     return (
       <aside className="map-detail-panel">
@@ -118,6 +139,7 @@ export default function MapDetailPanel({ selected }) {
 
   if (selected.type === 'pickup') {
     const pickup = selected.item;
+    const pickupGroups = Array.isArray(pickup.rideGroups) ? pickup.rideGroups : [];
     return (
       <aside className="map-detail-panel">
         <div className="map-detail-header">
@@ -131,15 +153,15 @@ export default function MapDetailPanel({ selected }) {
         <div className="map-detail-body">
           <div className="detail-grid">
             <div className="detail-item"><span>Zone</span><strong>{pickup.zone}</strong></div>
-            <div className="detail-item"><span>Active groups nearby</span><strong>{pickup.rideGroups.map((group) => group.id).join(', ') || 'None'}</strong></div>
+            <div className="detail-item"><span>Active groups nearby</span><strong>{pickupGroups.map((group) => group.id).join(', ') || 'None'}</strong></div>
           </div>
           <div className="detail-block">
             <h3>Current demand note</h3>
             <p className="detail-copy">{pickup.demandNote}</p>
           </div>
           <CrossLinkActions>
-            {pickup.rideGroups[0] ? (
-              <button type="button" className="button button-secondary" onClick={() => openMapRideGroupDetails(pickup.rideGroups[0].id)}>
+            {pickupGroups[0] ? (
+              <button type="button" className="button button-secondary" onClick={() => openMapRideGroupDetails(pickupGroups[0].id)}>
                 Open Primary Nearby Ride Group
               </button>
             ) : null}
@@ -152,6 +174,8 @@ export default function MapDetailPanel({ selected }) {
 
   if (selected.type === 'zone') {
     const zone = selected.item;
+    const zoneGroups = Array.isArray(zone.rideGroups) ? zone.rideGroups : [];
+    const zoneAlerts = Array.isArray(zone.alerts) ? zone.alerts : [];
     return (
       <aside className="map-detail-panel">
         <div className="map-detail-header">
@@ -165,14 +189,14 @@ export default function MapDetailPanel({ selected }) {
         <div className="map-detail-body">
           <div className="detail-grid">
             <div className="detail-item"><span>Restriction type</span><strong>{zone.restrictionType}</strong></div>
-            <div className="detail-item"><span>Affected groups</span><strong>{zone.rideGroups.map((group) => group.id).join(', ') || 'None'}</strong></div>
-            <div className="detail-item detail-item-wide"><span>Nearby drivers</span><strong>{zone.rideGroups.map((group) => group.driverUnitId).filter(Boolean).join(', ') || 'No assigned units'}</strong></div>
+            <div className="detail-item"><span>Affected groups</span><strong>{zoneGroups.map((group) => group.id).join(', ') || 'None'}</strong></div>
+            <div className="detail-item detail-item-wide"><span>Nearby drivers</span><strong>{zoneGroups.map((group) => group.driverUnitId).filter(Boolean).join(', ') || 'No assigned units'}</strong></div>
           </div>
           <div className="detail-block">
             <h3>Suggested caution note</h3>
             <p className="detail-copy">{zone.cautionNote}</p>
           </div>
-          <LinkedAlertsPanel alerts={zone.alerts} onOpenAlert={openMapAlertDetails} />
+          <LinkedAlertsPanel alerts={zoneAlerts} onOpenAlert={openMapAlertDetails} />
           <CrossLinkActions>
             <Link className="button button-secondary" to="/alerts">Open Alerts Queue</Link>
           </CrossLinkActions>
@@ -184,6 +208,16 @@ export default function MapDetailPanel({ selected }) {
   if (selected.type === 'alertArea') {
     const alertArea = selected.item;
     const alert = alertArea.alert;
+    if (!alert) {
+      return (
+        <aside className="map-detail-panel">
+          <div className="map-detail-empty">
+            <strong>Alert unavailable</strong>
+            <p>This alert area no longer has an active linked alert record.</p>
+          </div>
+        </aside>
+      );
+    }
     return (
       <aside className="map-detail-panel">
         <div className="map-detail-header">

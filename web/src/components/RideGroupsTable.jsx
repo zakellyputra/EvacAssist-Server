@@ -16,6 +16,8 @@ function getStatusTone(status) {
 }
 
 export default function RideGroupsTable({ groups, onSelectGroup, showExtendedColumns = false }) {
+  const safeGroups = Array.isArray(groups) ? groups : [];
+
   return (
     <div className="table-wrap">
       <table className="data-table">
@@ -34,7 +36,7 @@ export default function RideGroupsTable({ groups, onSelectGroup, showExtendedCol
           </tr>
         </thead>
         <tbody>
-          {groups.map((group) => (
+          {safeGroups.map((group) => (
             <tr
               key={group.id}
               className={onSelectGroup ? 'is-clickable' : ''}

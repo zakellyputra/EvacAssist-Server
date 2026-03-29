@@ -2,9 +2,11 @@ import Panel from './Panel';
 import StatusBadge from './StatusBadge';
 
 export default function AlertsList({ alerts, onSelectAlert, compact = true, embedded = false, actions = null }) {
+  const safeAlerts = Array.isArray(alerts) ? alerts : [];
+
   const content = (
     <div className={`alerts-list${compact ? ' alerts-list-compact' : ''}`}>
-      {alerts.map((alert) => (
+      {safeAlerts.map((alert) => (
         <article
           key={alert.id}
           className={`alert-card${onSelectAlert ? ' is-interactive' : ''}`}

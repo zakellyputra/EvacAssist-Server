@@ -2,12 +2,14 @@ import StatusBadge from './StatusBadge';
 import ActionStateBadge from './ActionStateBadge';
 
 export default function LinkedAlertsPanel({ alerts, onOpenAlert }) {
+  const safeAlerts = Array.isArray(alerts) ? alerts : [];
+
   return (
     <section className="detail-block">
       <h3>Linked Alerts</h3>
-      {alerts.length ? (
+      {safeAlerts.length ? (
         <div className="linked-list">
-          {alerts.map((alert) => (
+          {safeAlerts.map((alert) => (
             <button key={alert.id} type="button" className="linked-entity" onClick={() => onOpenAlert(alert.id)}>
               <div>
                 <strong>{alert.code ? `${alert.code} · ${alert.title}` : alert.title}</strong>

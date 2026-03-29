@@ -25,23 +25,23 @@ export default function DriverContextCard({ driverContext, assignedRideGroupId =
       <div className="detail-grid">
         <div className="detail-item">
           <span>Unit ID</span>
-          <strong>{driverContext.unitId}</strong>
+          <strong>{driverContext.unitId ?? 'Unknown unit'}</strong>
         </div>
         <div className="detail-item">
           <span>Driver</span>
-          <strong>{driverContext.displayName}</strong>
+          <strong>{driverContext.displayName ?? 'Unavailable'}</strong>
         </div>
         <div className="detail-item">
           <span>Current status</span>
-          <strong>{driverContext.operationalState}</strong>
+          <strong>{driverContext.operationalState ?? 'Status unavailable'}</strong>
         </div>
         <div className="detail-item">
           <span>Latest update</span>
-          <strong>{formatDate(driverContext.lastUpdated)}</strong>
+          <strong>{driverContext.lastUpdated ? formatDate(driverContext.lastUpdated) : 'No timestamp'}</strong>
         </div>
         <div className="detail-item">
           <span>Zone</span>
-          <strong>{driverContext.zone}</strong>
+          <strong>{driverContext.zone ?? 'Unassigned zone'}</strong>
         </div>
         {assignedRideGroupId ? (
           <div className="detail-item">
@@ -58,7 +58,7 @@ export default function DriverContextCard({ driverContext, assignedRideGroupId =
       ) : null}
       <div className="driver-note">
         <span>Readiness / movement note</span>
-        <p>{driverContext.quickNote}</p>
+        <p>{driverContext.quickNote ?? 'No movement note is attached right now.'}</p>
       </div>
     </section>
   );

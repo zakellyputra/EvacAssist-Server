@@ -16,8 +16,27 @@ function formatDate(value) {
 }
 
 export default function RideGroupDetailDrawer({ rideGroup, onClose }) {
+  if (!rideGroup) {
+    return (
+      <aside className="detail-drawer" aria-label="Ride group details unavailable">
+        <div className="detail-drawer-header">
+          <div className="detail-drawer-heading">
+            <p className="kicker">Ride Group Detail</p>
+            <h2>Unavailable</h2>
+            <p>The selected ride group record is no longer available in the active workspace.</p>
+          </div>
+          <button type="button" className="button button-secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
   const { alertsWithRelations, requestRideGroupAction, openAlert } = useOperations();
-  const linkedAlerts = alertsWithRelations.filter((alert) => rideGroup.linkedAlertIds.includes(alert.id));
+  const linkedAlertIds = Array.isArray(rideGroup.linkedAlertIds) ? rideGroup.linkedAlertIds : [];
+  const riders = Array.isArray(rideGroup.riders) ? rideGroup.riders : [];
+  const linkedAlerts = alertsWithRelations.filter((alert) => linkedAlertIds.includes(alert.id));
 
   return (
     <aside className="detail-drawer" aria-label={`Ride group ${rideGroup.id} details`}>
@@ -99,7 +118,7 @@ export default function RideGroupDetailDrawer({ rideGroup, onClose }) {
         <section className="detail-block">
           <h3>Rider Manifest</h3>
           <div className="manifest-list">
-            {rideGroup.riders.map((rider) => (
+            {riders.map((rider) => (
               <article key={rider.id} className="manifest-row">
                 <div>
                   <strong>{rider.name}</strong>
@@ -111,6 +130,7 @@ export default function RideGroupDetailDrawer({ rideGroup, onClose }) {
                 </div>
               </article>
             ))}
+            {!riders.length ? <p className="empty-copy">No rider manifest entries are attached to this group right now.</p> : null}
           </div>
         </section>
 
