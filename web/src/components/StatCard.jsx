@@ -1,9 +1,12 @@
-export default function StatCard({ label, value, tone = 'default', hint }) {
+export default function StatCard({ label, value, support, context }) {
   return (
-    <div className={`stat-card tone-${tone}`}>
-      <span className="stat-label">{label}</span>
+    <section className="stat-card">
+      <div className="stat-card-header">
+        <span className="stat-label">{label}</span>
+        {context ? <span className="stat-context">{context}</span> : null}
+      </div>
       <strong className="stat-value">{value}</strong>
-      {hint ? <span className="stat-hint">{hint}</span> : null}
-    </div>
+      {support ? <p className="stat-support">{support}</p> : null}
+    </section>
   );
 }

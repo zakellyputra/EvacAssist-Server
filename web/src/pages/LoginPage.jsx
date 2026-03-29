@@ -1,107 +1,119 @@
 import { useState } from 'react';
-import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth';
-import PageHeader from '../components/PageHeader';
-import Panel from '../components/Panel';
+
+const MONITORING_AREAS = [
+  'Live ride groups moving through pickup corridors',
+  'Active drivers checking in across assigned zones',
+  'Operational alerts that need intervention',
+  'A live evacuation map for route and zone awareness',
+];
 
 export default function LoginPage() {
-  const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-  const [formState, setFormState] = useState({ username: '', password: '' });
-  const [loading, setLoading] = useState(false);
+  const { login, demoCredentials } = useAuth();
+  const [formState, setFormState] = useState({
+    email: demoCredentials.email,
+    password: demoCredentials.password,
+  });
   const [error, setError] = useState('');
-  const successMessage = location.state?.message || '';
-
-  if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
-  }
+  const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit(event) {
     event.preventDefault();
-    setLoading(true);
     setError('');
+    setSubmitting(true);
 
     try {
-      await login(formState.username, formState.password);
+      await login(formState.email, formState.password);
       navigate('/dashboard', { replace: true });
     } catch (submitError) {
-      setError(submitError.message || 'Unable to sign in.');
+      setError(submitError.message || 'Unable to enter the operations dashboard.');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
 
   return (
-    <div className="auth-page">
-      <div className="auth-copy">
-        <PageHeader
-          eyebrow="Private Access"
-          title="Sign In"
-          subtitle="Use your local username and password to coordinate with drivers and unlock private emergency tools."
-        />
-        <Panel title="Guest Access" subtitle="Public map, danger zones, and latest news stay open to everyone">
-          <div className="detail-section-list">
-            <div className="detail-section">
-              <span className="detail-label">Guests</span>
-              <p>Can view the live map, danger zones, and latest alerts without creating an account.</p>
-            </div>
-            <div className="detail-section">
-              <span className="detail-label">Signed-In Users</span>
-              <p>Can communicate with drivers, use route planning, submit incidents, and access other protected workflows.</p>
-            </div>
+    <div className="login-page">
+      <section className="login-layout">
+        <div className="login-briefing">
+          <div className="login-briefing-mark">EA</div>
+          <div className="login-briefing-copy">
+            <p className="kicker">Evacuation Coordination System</p>
+            <h1>Admin operations console for live evacuation oversight.</h1>
+            <p className="login-summary">
+              Monitor ride groups, driver activity, operational constraints, and field alerts
+              from a single coordination workspace designed for crisis logistics staff.
+            </p>
           </div>
-        </Panel>
-      </div>
 
-      <Panel title="Account Access" subtitle="Website login now uses privacy-focused local credentials">
-        <form className="form-stack" onSubmit={handleSubmit}>
-          {successMessage ? (
-            <div className="success-banner" role="status">
-              <strong>Account created.</strong>
-              <span>{successMessage}</span>
-            </div>
-          ) : null}
-          {error ? (
-            <div className="error-banner" role="alert">
-              <strong>Unable to sign in.</strong>
-              <span>{error}</span>
-            </div>
-          ) : null}
+          <div className="monitor-list">
+            {MONITORING_AREAS.map((item) => (
+              <div key={item} className="monitor-item">
+                <span className="monitor-item-mark" />
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
 
-          <label className="field">
-            <span>Username</span>
-            <input
-              type="text"
-              value={formState.username}
-              onChange={(event) => setFormState((current) => ({ ...current, username: event.target.value }))}
-              placeholder="Enter your username"
-              autoComplete="username"
-              required
-            />
-          </label>
+          <div className="login-briefing-footnote">
+            Phase 1 is using a protected placeholder sign-in so the dashboard flow feels real
+            before backend auth is fully wired.
+          </div>
+        </div>
 
-          <label className="field">
-            <span>Password</span>
-            <input
-              type="password"
-              value={formState.password}
-              onChange={(event) => setFormState((current) => ({ ...current, password: event.target.value }))}
-              placeholder="Enter your password"
-              autoComplete="current-password"
-              required
-            />
-          </label>
+        <section className="login-card">
+          <div className="login-card-header">
+            <p className="kicker">Staff Sign-In</p>
+            <h2>Access dashboard</h2>
+            <p>
+              Sign in to review ride group activity, active drivers, route exceptions, and
+              critical field alerts.
+            </p>
+          </div>
 
-          <button className="button button-primary" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
+          <form className="login-form" onSubmit={handleSubmit}>
+            {error ? (
+              <div className="message-block message-block-error" role="alert">
+                {error}
+              </div>
+            ) : null}
 
-          <p className="helper-text">
-            Need an account? <Link to="/register">Create one here</Link>.
-          </p>
-        </form>
-      </Panel>
+            <label className="field">
+              <span>Email</span>
+              <input
+                type="email"
+                value={formState.email}
+                onChange={(event) => setFormState((current) => ({ ...current, email: event.target.value }))}
+                autoComplete="email"
+                required
+              />
+            </label>
+
+            <label className="field">
+              <span>Password</span>
+              <input
+                type="password"
+                value={formState.password}
+                onChange={(event) => setFormState((current) => ({ ...current, password: event.target.value }))}
+                autoComplete="current-password"
+                required
+              />
+            </label>
+
+            <button type="submit" className="button button-primary" disabled={submitting}>
+              {submitting ? 'Signing in...' : 'Enter Dashboard'}
+            </button>
+          </form>
+
+          <div className="login-helper">
+            <strong>Demo credentials</strong>
+            <span>{demoCredentials.email}</span>
+            <span>{demoCredentials.password}</span>
+          </div>
+        </section>
+      </section>
     </div>
   );
 }

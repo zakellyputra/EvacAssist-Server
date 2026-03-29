@@ -1,66 +1,58 @@
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
-import { useAuth } from './auth';
 import AppShell from './components/AppShell';
-import PublicShell from './components/PublicShell';
+import { useAuth } from './auth';
+import AlertsPage from './pages/AlertsPage';
 import DashboardPage from './pages/DashboardPage';
-import DriverApprovals from './pages/DriverApprovals';
-import IncidentsPage from './pages/IncidentsPage';
+import LiveMapPage from './pages/LiveMapPage';
 import LoginPage from './pages/LoginPage';
-import News from './pages/News';
-import Overview from './pages/Overview';
-import PublicZonesPage from './pages/PublicZonesPage';
-import Register from './pages/Register';
-import RequestsPage from './pages/RequestsPage';
-import TripsPage from './pages/TripsPage';
-import ZonesPage from './pages/ZonesPage';
+import PlaceholderPage from './pages/PlaceholderPage';
+import RideGroupsPage from './pages/RideGroupsPage';
 
-function PrivateRoute() {
+function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth();
-  return isAuthenticated ? <AppShell><Outlet /></AppShell> : <Navigate to="/login" replace />;
+  return isAuthenticated ? children : <Navigate to="/login" replace />;
 }
 
-function GuestOnlyRoute() {
+function GuestRoute({ children }) {
   const { isAuthenticated } = useAuth();
-  return isAuthenticated ? <Navigate to="/dashboard" replace /> : <Outlet />;
-}
-
-function AdminRoute() {
-  const { isAuthenticated, role } = useAuth();
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return role === 'admin' ? <Outlet /> : <Navigate to="/dashboard" replace />;
-}
-
-function AppFallback() {
-  const { isAuthenticated } = useAuth();
-  return <Navigate to={isAuthenticated ? '/dashboard' : '/overview'} replace />;
+  return isAuthenticated ? <Navigate to="/dashboard" replace /> : children;
 }
 
 export default function App() {
   return (
     <Routes>
-      <Route element={<PublicShell />}>
-        <Route index element={<Navigate to="/overview" replace />} />
-        <Route path="/overview" element={<Overview />} />
-        <Route path="/zones" element={<PublicZonesPage />} />
-        <Route path="/news" element={<News />} />
-        <Route element={<GuestOnlyRoute />}>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<Register />} />
-        </Route>
-      </Route>
-
-      <Route element={<PrivateRoute />}>
+      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route
+        path="/login"
+        element={(
+          <GuestRoute>
+            <LoginPage />
+          </GuestRoute>
+        )}
+      />
+      <Route
+        element={(
+          <ProtectedRoute>
+            <AppShell>
+              <Outlet />
+            </AppShell>
+          </ProtectedRoute>
+        )}
+      >
         <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/requests" element={<RequestsPage />} />
-        <Route path="/trips" element={<TripsPage />} />
-        <Route path="/incidents" element={<IncidentsPage />} />
-        <Route element={<AdminRoute />}>
-          <Route path="/admin/drivers" element={<DriverApprovals />} />
-          <Route path="/admin/zones" element={<ZonesPage />} />
-        </Route>
+        <Route path="/ride-groups" element={<RideGroupsPage />} />
+        <Route path="/alerts" element={<AlertsPage />} />
+        <Route path="/live-map" element={<LiveMapPage />} />
+        <Route
+          path="/drivers"
+          element={<PlaceholderPage title="Drivers" description="Driver monitoring, unit readiness, and check-in coverage will expand into this dedicated workspace next." />}
+        />
+        <Route
+          path="/settings"
+          element={<PlaceholderPage title="Settings" description="Console settings, alert rules, and workflow defaults will be managed from this area in a later phase." />}
+        />
       </Route>
-
-      <Route path="*" element={<AppFallback />} />
+      <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );
 }
