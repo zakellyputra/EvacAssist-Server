@@ -107,6 +107,10 @@ export default function LoginPage() {
             </button>
           </form>
 
+          <div className="login-evac-link">
+            <a href="/request">Need evacuation help?</a>
+          </div>
+
           <div className="login-helper">
             <strong>Demo credentials</strong>
             <span>{demoCredentials.email}</span>

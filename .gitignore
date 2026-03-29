@@ -1,5 +1,10 @@
 .claude/
 **/node_modules/
+node_modules/
+**/.expo/
 **/.env
 **/__pycache__/
 web/dist/
+app/dist/
+**/.DS_Store
+**/*.log

@@ -7,6 +7,7 @@ import LiveMapPage from './pages/LiveMapPage';
 import LoginPage from './pages/LoginPage';
 import PlaceholderPage from './pages/PlaceholderPage';
 import RideGroupsPage from './pages/RideGroupsPage';
+import RequestEvacuation from './pages/RequestEvacuation';
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated } = useAuth();
@@ -22,6 +23,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/request" element={<RequestEvacuation />} />
       <Route
         path="/login"
         element={(
