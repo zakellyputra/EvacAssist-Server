@@ -19,13 +19,19 @@ const AUTH_KEY = 'evacassist:auth';
 export default function SignupScreen() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [vehicle, setVehicle] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   async function handleSignup() {
-    if (!name.trim() || !phone.trim()) {
-      setError('Name and phone number are required.');
+    if (!name.trim() || !phone.trim() || !password.trim()) {
+      setError('Name, phone number, and password are required.');
+      return;
+    }
+    if (password.trim().length < 8) {
+      setError('Password must be at least 8 characters.');
       return;
     }
     setError('');
@@ -37,6 +43,7 @@ export default function SignupScreen() {
         body: JSON.stringify({
           name: name.trim(),
           phone: phone.trim(),
+          password: password.trim(),
           role: 'driver',
           vehicle: vehicle.trim() || undefined,
         }),
@@ -121,6 +128,29 @@ export default function SignupScreen() {
               textColor="#E0E0E0"
               theme={{ colors: { onSurfaceVariant: '#78909C', background: '#0D1B2A' } }}
               left={<TextInput.Icon icon="car" color="#78909C" />}
+            />
+
+            <TextInput
+              label="Password"
+              value={password}
+              onChangeText={setPassword}
+              mode="outlined"
+              secureTextEntry={!passwordVisible}
+              autoComplete="password-new"
+              textContentType="newPassword"
+              style={styles.input}
+              outlineColor="#1A2E3F"
+              activeOutlineColor="#C62828"
+              textColor="#E0E0E0"
+              theme={{ colors: { onSurfaceVariant: '#78909C', background: '#0D1B2A' } }}
+              left={<TextInput.Icon icon="lock" color="#78909C" />}
+              right={
+                <TextInput.Icon
+                  icon={passwordVisible ? 'eye-off' : 'eye'}
+                  color="#78909C"
+                  onPress={() => setPasswordVisible((v) => !v)}
+                />
+              }
             />
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}

@@ -9,6 +9,9 @@
       "bundleIdentifier": "com.evacassist.app",
       "buildNumber": "1"
     },
+    "extra": {
+      "apiUrl": "https://honors-curves-showers-nights.trycloudflare.com/"        
+    },
     "android": {
       "package": "com.evacassist.app"
     },

@@ -25,11 +25,7 @@ userSchema.pre('validate', function setNormalizedUsername(next) {
     this.username_normalized = this.username.trim().toLowerCase();
   }
 
-  if (this.role === 'driver' && !this.approval_status) {
-    this.approval_status = 'pending';
-  }
-
-  if (this.role !== 'driver' && !this.approval_status) {
+  if (!this.approval_status) {
     this.approval_status = 'approved';
   }
 

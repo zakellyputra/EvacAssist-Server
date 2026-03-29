@@ -18,10 +18,11 @@ function issueTokens(user) {
 
 router.post('/register', async (req, res) => {
   try {
-    const { name, username, password, role = 'rider', vehicle, wallet_address } = req.body;
+    const { name, username, phone, password, role = 'rider', vehicle, wallet_address } = req.body;
+    const identifier = phone ?? username;
 
     if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
-    if (!username?.trim()) return res.status(400).json({ error: 'username is required' });
+    if (!identifier?.trim()) return res.status(400).json({ error: 'username or phone is required' });
     if (!password || password.length < 8) {
       return res.status(400).json({ error: 'password must be at least 8 characters' });
     }
@@ -29,17 +30,17 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'role must be rider or driver' });
     }
 
-    const username_normalized = normalizeUsername(username);
+    const username_normalized = normalizeUsername(identifier);
     const existing = await User.findOne({ username_normalized });
     if (existing) {
       return res.status(409).json({ error: 'Username is already taken' });
     }
 
     const password_hash = await bcrypt.hash(password, 10);
-    const approval_status = role === 'driver' ? 'pending' : 'approved';
+    const approval_status = 'approved';
     const user = await User.create({
       name: name.trim(),
-      username: username.trim(),
+      username: identifier.trim(),
       username_normalized,
       password_hash,
       role,
@@ -47,14 +48,6 @@ router.post('/register', async (req, res) => {
       vehicle,
       wallet_address,
     });
-
-    if (role === 'driver') {
-      return res.status(202).json({
-        user_id: user._id,
-        approval_status: user.approval_status,
-        message: 'Driver account created and pending admin approval',
-      });
-    }
 
     res.status(201).json({
       user_id: user._id,
@@ -69,23 +62,20 @@ router.post('/register', async (req, res) => {
 
 router.post('/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
-    if (!username?.trim() || !password) {
-      return res.status(400).json({ error: 'username and password are required' });
+    const { username, phone, password } = req.body;
+    const identifier = phone ?? username;
+    if (!identifier?.trim() || !password) {
+      return res.status(400).json({ error: 'username or phone and password are required' });
     }
 
-    const user = await User.findOne({ username_normalized: normalizeUsername(username) });
+    const user = await User.findOne({ username_normalized: normalizeUsername(identifier) });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
 
-    if (user.role === 'driver' && user.approval_status !== 'approved') {
-      return res.status(403).json({
-        error: user.approval_status === 'rejected'
-          ? 'Driver account has been rejected'
-          : 'Driver account is pending admin approval',
-      });
+    if (user.role === 'driver' && user.approval_status === 'rejected') {
+      return res.status(403).json({ error: 'Driver account has been rejected' });
     }
 
     res.json({

@@ -56,7 +56,7 @@ export default function Register() {
       setSuccess(
         result.message
           || (form.role === 'driver'
-            ? 'Driver account created. Wait for admin approval before signing in.'
+            ? 'Driver account created successfully.'
             : 'Account created successfully.'),
       );
     } catch (submitError) {
@@ -72,7 +72,7 @@ export default function Register() {
         <PageHeader
           eyebrow="Create Access"
           title="Create Account"
-          subtitle="Registration stays local to your EvacAssist deployment. Drivers can self-register, then wait for admin approval."
+          subtitle="Registration stays local to your EvacAssist deployment. New accounts can sign in immediately after sign-up."
         />
         <Panel title="How Access Works" subtitle="Guest browsing stays public while private coordination stays protected">
           <div className="detail-section-list">
@@ -82,7 +82,7 @@ export default function Register() {
             </div>
             <div className="detail-section">
               <span className="detail-label">Drivers</span>
-              <p>Driver accounts stay pending until an admin approves them, which keeps the coordination network private and controlled.</p>
+              <p>Driver accounts are active as soon as registration succeeds.</p>
             </div>
           </div>
         </Panel>
