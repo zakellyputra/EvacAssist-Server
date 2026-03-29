@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "EvacAssist",
+    "slug": "evacassist",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "evacassist",
+    "ios": {
+      "bundleIdentifier": "com.evacassist.app",
+      "buildNumber": "1"
+    },
+    "android": {
+      "package": "com.evacassist.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-location",
+      [
+        "expo-camera",
+        { "cameraPermission": "EvacAssist needs camera access to scan QR codes at pickup." }
+      ]
+    ]
+  }
+}
