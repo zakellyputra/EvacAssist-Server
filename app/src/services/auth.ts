@@ -56,3 +56,30 @@ export async function ensureSession(): Promise<AuthSession> {
   if (existing?.accessToken) return existing;
   return registerEmergencyRider();
 }
+
+export async function refreshSession(): Promise<AuthSession> {
+  const existing = await getSession();
+  if (!existing?.refreshToken) {
+    return registerEmergencyRider();
+  }
+
+  const response = await fetch(`${API_URL}/api/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: existing.refreshToken }),
+  });
+
+  if (!response.ok) {
+    await AsyncStorage.removeItem(AUTH_KEY);
+    return registerEmergencyRider();
+  }
+
+  const data = await response.json();
+  const session: AuthSession = {
+    accessToken: data.access_token,
+    refreshToken: existing.refreshToken,
+  };
+
+  await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(session));
+  return session;
+}

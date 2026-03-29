@@ -30,14 +30,29 @@ export default function RequestScreen() {
     setSuccess('');
 
     try {
+      const netState = await NetInfo.fetch();
+      const onlineNow = netState.isConnected ?? false;
+      setIsOnline(onlineNow);
+
+      const permission = await Location.getForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        const asked = await Location.requestForegroundPermissionsAsync();
+        if (asked.status !== 'granted') {
+          throw new Error('Location permission is required to send an evacuation request.');
+        }
+      }
+
       const loc = await Location.getCurrentPositionAsync({});
       const pickupPoint = {
         type: 'Point' as const,
         coordinates: [loc.coords.longitude, loc.coords.latitude] as [number, number],
       };
       const normalizedPassengers = passengers === '5+' ? 5 : parseInt(passengers, 10);
+      if (!Number.isFinite(normalizedPassengers) || normalizedPassengers < 1) {
+        throw new Error('Please select a valid passenger count.');
+      }
 
-      if (isOnline) {
+      if (onlineNow) {
         try {
           const remoteTrip = await requestEvacuation({
             pickupLoc: pickupPoint,

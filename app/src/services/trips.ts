@@ -1,5 +1,5 @@
 import { API_URL } from '../constants';
-import { ensureSession } from './auth';
+import { ensureSession, refreshSession } from './auth';
 
 interface Point {
   type: 'Point';
@@ -19,13 +19,11 @@ export interface CreatedTrip {
 }
 
 export async function requestEvacuation(payload: CreateTripPayload): Promise<CreatedTrip> {
-  const session = await ensureSession();
-
-  const response = await fetch(`${API_URL}/api/trips`, {
+  const sendCreateTrip = async (accessToken: string) => fetch(`${API_URL}/api/trips`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.accessToken}`,
+      Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
       pickup_loc: payload.pickupLoc,
@@ -34,6 +32,14 @@ export async function requestEvacuation(payload: CreateTripPayload): Promise<Cre
       notes: payload.notes,
     }),
   });
+
+  const session = await ensureSession();
+  let response = await sendCreateTrip(session.accessToken);
+
+  if (response.status === 401) {
+    const refreshed = await refreshSession();
+    response = await sendCreateTrip(refreshed.accessToken);
+  }
 
   if (!response.ok) {
     const body = await response.text();
