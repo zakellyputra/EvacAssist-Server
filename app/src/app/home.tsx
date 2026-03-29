@@ -55,7 +55,7 @@ export default function HomeScreen() {
         if (!isMounted || !Array.isArray(trips)) return;
 
         const activeAcceptedTrip = trips.find(
-          (trip) => ACCEPTED_STATUSES.has(trip.status) && trip.driver,
+          (trip) => ACCEPTED_STATUSES.has(trip.status),
         );
 
         if (!activeAcceptedTrip) return;

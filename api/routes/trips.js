@@ -5,6 +5,7 @@ import AuditLog from '../models/AuditLog.js';
 import Driver from '../models/Driver.js';
 import EvacuationRequest from '../models/EvacuationRequest.js';
 import Trip from '../models/Trip.js';
+import User from '../models/User.js';
 import Vehicle from '../models/Vehicle.js';
 import { io } from '../server.js';
 import {
@@ -329,24 +330,37 @@ router.get('/my', requireAuth, async (req, res) => {
   const filter = req.user.role === 'driver'
     ? { driver_id: req.user.id }
     : { rider_id: req.user.id };
-  const query = Trip.find(filter).sort({ created_at: -1 }).limit(50);
+  const trips = await Trip.find(filter).sort({ created_at: -1 }).limit(50).lean();
 
-  if (req.user.role !== 'driver') {
-    query.populate('driver_id', 'name username vehicle');
-  }
+  const riderDriverIds = req.user.role === 'driver'
+    ? []
+    : [...new Set(
+        trips
+          .map((trip) => trip.driver_id ?? trip.driverUserId)
+          .filter(Boolean)
+          .map((id) => String(id))
+      )];
 
-  const trips = await query.lean();
+  const drivers = riderDriverIds.length
+    ? await User.find({ _id: { $in: riderDriverIds } }, 'name username vehicle').lean()
+    : [];
+
+  const driverById = new Map(drivers.map((driver) => [String(driver._id), driver]));
   const tripsWithDriverDetails = trips.map((trip) => {
-    if (req.user.role === 'driver' || !trip.driver_id || typeof trip.driver_id !== 'object') {
+    if (req.user.role === 'driver') {
       return { ...trip, driver: null };
     }
 
-    const driver = trip.driver_id;
+    const driverRef = trip.driver_id ?? trip.driverUserId;
+    if (!driverRef) return { ...trip, driver: null };
+    const driver = driverById.get(String(driverRef));
+    if (!driver) return { ...trip, driver: null };
+
     return {
       ...trip,
-      driver_id: driver._id,
+      driver_id: driver._id ?? driverRef,
       driver: {
-        id: driver._id,
+        id: driver._id ?? driverRef,
         name: driver.name,
         username: driver.username,
         vehicle: driver.vehicle ?? null,
