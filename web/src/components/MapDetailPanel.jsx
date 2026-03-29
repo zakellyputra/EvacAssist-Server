@@ -21,7 +21,7 @@ function formatDate(value) {
 export default function MapDetailPanel({ selected }) {
   const navigate = useNavigate();
   const {
-    alertsWithRelations,
+    alerts,
     clearMapSelection,
     focusMapOnRideGroup,
     openMapAlertDetails,
@@ -63,7 +63,7 @@ export default function MapDetailPanel({ selected }) {
         </aside>
       );
     }
-    const linkedAlerts = alertsWithRelations.filter((alert) => rideGroup.linkedAlertIds.includes(alert.id));
+    const linkedAlerts = (Array.isArray(alerts) ? alerts : []).filter((alert) => (rideGroup.linkedAlertIds ?? []).includes(alert.id));
     return (
       <aside className="map-detail-panel">
         <div className="map-detail-header">

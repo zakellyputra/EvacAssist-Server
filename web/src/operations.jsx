@@ -21,6 +21,12 @@ function byAlertPriority(a, b) {
   return new Date(b.createdAt) - new Date(a.createdAt);
 }
 
+function getReopenedStatus(group) {
+  if ((group.ridersJoined ?? 0) >= (group.capacity ?? Number.MAX_SAFE_INTEGER)) return 'Full';
+  if ((group.ridersJoined ?? 0) > 0) return 'Filling';
+  return 'Open';
+}
+
 export function OperationsProvider({ children }) {
   const [rideGroups, setRideGroups] = useState(initialRideGroups);
   const [alerts, setAlerts] = useState(initialAlerts);
@@ -116,9 +122,9 @@ export function OperationsProvider({ children }) {
 
   const rideGroupSummaries = useMemo(() => ([
     { label: 'Total active groups', value: rideGroupsWithRelations.filter((group) => !['Completed', 'Cancelled'].includes(group.status)).length },
-    { label: 'Open groups', value: rideGroupsWithRelations.filter((group) => group.status === 'Open').length },
+    { label: 'Open groups', value: rideGroupsWithRelations.filter((group) => ['Open', 'Filling'].includes(group.status)).length },
     { label: 'Full groups', value: rideGroupsWithRelations.filter((group) => group.status === 'Full').length },
-    { label: 'Flagged groups', value: rideGroupsWithRelations.filter((group) => group.status === 'Flagged').length },
+    { label: 'Flagged groups', value: rideGroupsWithRelations.filter((group) => group.status === 'Flagged' || group.interventionState === 'Needs Review').length },
   ]), [rideGroupsWithRelations]);
 
   const alertSummaries = useMemo(() => ([
@@ -301,6 +307,14 @@ export function OperationsProvider({ children }) {
     )));
   }
 
+  function updateAlertsForRideGroup(rideGroupId, updater) {
+    setAlerts((current) => current.map((alert) => {
+      if (alert.relatedGroupId !== rideGroupId) return alert;
+      const nextUpdates = updater(alert);
+      return nextUpdates ? { ...alert, ...nextUpdates } : alert;
+    }));
+  }
+
   function appendActivity({ title, description, meta = '' }) {
     const now = new Date();
     const time = new Intl.DateTimeFormat('en-US', {
@@ -332,8 +346,15 @@ export function OperationsProvider({ children }) {
         departureReadinessDetail: {
           ...group.departureReadinessDetail,
           riderCheckIn: `${group.ridersJoined} of ${group.capacity} confirmed`,
+          routeAdvisory: group.departureReadinessDetail?.routeAdvisory ?? 'Route under routine review',
           readinessEstimate: 'Ready on dispatch release',
         },
+        departureReadiness: 'Ready on dispatch release',
+        summary: `Ride Group ${rideGroupId} is closed for joining at ${group.pickupPoint} and awaiting final dispatch release in ${group.zone}.`,
+      });
+      updateAlertsForRideGroup(rideGroupId, (alert) => {
+        if (alert.status === 'Resolved') return null;
+        return { status: 'Monitoring' };
       });
       appendActivity({
         title: `${rideGroupId} closed for joining`,
@@ -342,14 +363,22 @@ export function OperationsProvider({ children }) {
       });
     }
     if (action === 'Reopen Group') {
+      const reopenedStatus = getReopenedStatus(group);
       updateRideGroup(rideGroupId, {
-        status: 'Open',
+        status: reopenedStatus,
         interventionState: 'Monitoring',
         departureReadinessDetail: {
           ...group.departureReadinessDetail,
+          riderCheckIn: `${group.ridersJoined} of ${group.capacity} confirmed`,
           readinessEstimate: 'Awaiting additional riders',
         },
+        departureReadiness: 'Awaiting additional riders before dispatch review',
+        summary: `Ride Group ${rideGroupId} was reopened for joining at ${group.pickupPoint} and is absorbing additional riders in ${group.zone}.`,
+        statusBeforeFlag: null,
       });
+      updateAlertsForRideGroup(rideGroupId, (alert) => ({
+        status: alert.severity === 'Critical' ? 'In Review' : 'Open',
+      }));
       appendActivity({
         title: `${rideGroupId} reopened for joining`,
         description: `Admin reopened the ride group to absorb additional riders in the current corridor cycle.`,
@@ -357,7 +386,16 @@ export function OperationsProvider({ children }) {
       });
     }
     if (action === 'Mark Flagged') {
-      updateRideGroup(rideGroupId, { status: 'Flagged', interventionState: 'Needs Review' });
+      updateRideGroup(rideGroupId, {
+        status: 'Flagged',
+        interventionState: 'Needs Review',
+        departureReadiness: 'Held for operations review',
+        summary: `Ride Group ${rideGroupId} is flagged at ${group.pickupPoint} and now requires operator review before movement resumes in ${group.zone}.`,
+        statusBeforeFlag: group.status === 'Flagged' ? (group.statusBeforeFlag ?? 'Filling') : group.status,
+      });
+      updateAlertsForRideGroup(rideGroupId, (alert) => ({
+        status: alert.status === 'Resolved' ? 'In Review' : 'In Review',
+      }));
       appendActivity({
         title: `${rideGroupId} marked flagged by admin`,
         description: `Operational review was requested for the group due to changing corridor conditions.`,
@@ -365,7 +403,18 @@ export function OperationsProvider({ children }) {
       });
     }
     if (action === 'Resolve Flag') {
-      updateRideGroup(rideGroupId, { status: 'Filling', interventionState: 'Action Taken' });
+      const restoredStatus = group.statusBeforeFlag ?? getReopenedStatus(group);
+      updateRideGroup(rideGroupId, {
+        status: restoredStatus,
+        interventionState: 'Monitoring',
+        departureReadiness: restoredStatus === 'Full' ? 'Ready on dispatch release' : 'Returned to monitored filling state',
+        summary: `Ride Group ${rideGroupId} returned to active monitoring at ${group.pickupPoint} after the flagged condition was cleared.`,
+        statusBeforeFlag: null,
+      });
+      updateAlertsForRideGroup(rideGroupId, (alert) => ({
+        status: alert.severity === 'Critical' ? 'Monitoring' : 'Resolved',
+        resolvedToday: alert.severity === 'Critical' ? alert.resolvedToday : true,
+      }));
       appendActivity({
         title: `${rideGroupId} flag resolved`,
         description: `Admin cleared the active flag after reviewing route and pickup readiness notes.`,
@@ -373,7 +422,16 @@ export function OperationsProvider({ children }) {
       });
     }
     if (action === 'Cancel Group') {
-      updateRideGroup(rideGroupId, { status: 'Cancelled', interventionState: 'Action Taken' });
+      updateRideGroup(rideGroupId, {
+        status: 'Cancelled',
+        interventionState: 'Action Taken',
+        departureReadiness: 'Cancelled by admin',
+        summary: `Ride Group ${rideGroupId} was cancelled and removed from active monitoring at ${group.pickupPoint}.`,
+      });
+      updateAlertsForRideGroup(rideGroupId, () => ({
+        status: 'Resolved',
+        resolvedToday: true,
+      }));
       appendActivity({
         title: `${rideGroupId} cancelled`,
         description: `The ride group was removed from active monitoring and marked cancelled.`,
