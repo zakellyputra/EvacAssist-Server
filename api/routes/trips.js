@@ -14,17 +14,9 @@ import {
   getActiveBlockingConflicts,
   syncRideGroupConflicts,
 } from '../services/conflictEngine.js';
+import auditLogger from '../services/auditLogger.js';
 
 const router = Router();
-
-async function logAuditEvent({ actorId, tripId, eventType, payload = {} }) {
-  await AuditLog.create({
-    actor_id: actorId,
-    trip_id: tripId,
-    event_type: eventType,
-    payload,
-  });
-}
 
 async function syncRequestAssignments(trip) {
   if (!trip?.requestId) return null;
@@ -188,12 +180,7 @@ router.patch('/:id/assign-driver', requireAdmin, async (req, res) => {
   await Driver.findByIdAndUpdate(driver._id, { status: 'assigned' });
   await syncRequestAssignments(trip);
   const conflicts = await syncRideGroupConflicts(trip._id);
-  await logAuditEvent({
-    actorId: req.user.id,
-    tripId: trip._id,
-    eventType: 'driver_assigned',
-    payload: { driverUserId },
-  });
+  await auditLogger.log('driver_assigned', { actor_id: req.user.id, trip_id: trip._id, payload: { driverUserId } });
 
   res.json({ ok: true, trip, conflicts });
 });
@@ -223,12 +210,7 @@ router.patch('/:id/assign-vehicle', requireAdmin, async (req, res) => {
 
   await syncRequestAssignments(trip);
   const conflicts = await syncRideGroupConflicts(trip._id);
-  await logAuditEvent({
-    actorId: req.user.id,
-    tripId: trip._id,
-    eventType: 'vehicle_assigned',
-    payload: { vehicleId },
-  });
+  await auditLogger.log('vehicle_assigned', { actor_id: req.user.id, trip_id: trip._id, payload: { vehicleId } });
 
   res.json({ ok: true, trip, conflicts });
 });
@@ -273,12 +255,7 @@ router.patch('/:id/dispatch-ready', requireAdmin, async (req, res) => {
   }
   await trip.save();
 
-  await logAuditEvent({
-    actorId: req.user.id,
-    tripId: trip._id,
-    eventType: 'dispatch_ready_marked',
-    payload: { dispatchReadyAt: trip.dispatchReadyAt },
-  });
+  await auditLogger.log('dispatch_ready_marked', { actor_id: req.user.id, trip_id: trip._id });
 
   res.json({ ok: true, trip, conflicts: await syncRideGroupConflicts(trip._id) });
 });
@@ -290,7 +267,7 @@ router.patch('/:id/close-joining', requireAdmin, async (req, res) => {
     { new: true }
   );
   if (!trip) return res.status(404).json({ error: 'Trip not found' });
-  await logAuditEvent({ actorId: req.user.id, tripId: trip._id, eventType: 'joining_closed' });
+  await auditLogger.log('joining_closed', { actor_id: req.user.id, trip_id: trip._id });
   res.json({ ok: true, trip, conflicts: await syncRideGroupConflicts(trip._id) });
 });
 
@@ -301,7 +278,7 @@ router.patch('/:id/reopen', requireAdmin, async (req, res) => {
     { new: true }
   );
   if (!trip) return res.status(404).json({ error: 'Trip not found' });
-  await logAuditEvent({ actorId: req.user.id, tripId: trip._id, eventType: 'ride_reopened' });
+  await auditLogger.log('ride_reopened', { actor_id: req.user.id, trip_id: trip._id });
   res.json({ ok: true, trip, conflicts: await syncRideGroupConflicts(trip._id) });
 });
 
@@ -314,7 +291,7 @@ router.patch('/:id/cancel', requireAdmin, async (req, res) => {
   );
   if (!trip) return res.status(404).json({ error: 'Trip not found' });
   await syncRequestAssignments(trip);
-  await logAuditEvent({ actorId: req.user.id, tripId: trip._id, eventType: 'ride_cancelled', payload: { reason } });
+  await auditLogger.log('ride_cancelled', { actor_id: req.user.id, trip_id: trip._id, payload: { reason } });
   res.json({ ok: true, trip, conflicts: await syncRideGroupConflicts(trip._id) });
 });
 

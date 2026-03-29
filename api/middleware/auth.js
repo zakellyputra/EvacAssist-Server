@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import TokenBlacklist from '../models/TokenBlacklist.js';
 
 export function verifyToken(token) {
   return jwt.verify(token, process.env.JWT_SECRET);
@@ -24,4 +25,29 @@ export function requireAdmin(req, res, next) {
     }
     next();
   });
+}
+
+// New access control functions
+export function requireCoordinatorOrAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user.role !== 'coordinator' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Coordinator or admin access required' });
+    }
+    next();
+  });
+}
+
+export function requireIncidentReader(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user.role !== 'driver' && req.user.role !== 'coordinator' && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Incident access denied' });
+    }
+    next();
+  });
+}
+
+// Basic token blacklist check
+export async function checkTokenBlacklist(jti) {
+  const blacklisted = await TokenBlacklist.findOne({ jti });
+  return !!blacklisted;
 }

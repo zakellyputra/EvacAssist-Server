@@ -30,6 +30,7 @@ import { pickupZoneRoutes, syncPickupZoneIndexes } from './services/pickup-zones
 import { verifyToken } from './middleware/auth.js';
 import { registerSocketEvents } from './socket/events.js';
 import { decayIncidents } from './services/geoFusion.js';
+import auditLogger from './services/auditLogger.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -81,6 +82,14 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 cron.schedule('0 * * * *', () => {
   decayIncidents().catch(console.error);
 });
+
+// Basic audit log verification daily
+cron.schedule('0 3 * * *', () => {
+  auditLogger.verifyBasic()
+    .then(result => console.log('[audit] daily verification:', result))
+    .catch(error => console.error('[audit] verification failed:', error));
+});
+
 registerConflictIntelJob();
 
 // Connect to MongoDB Atlas then start server
