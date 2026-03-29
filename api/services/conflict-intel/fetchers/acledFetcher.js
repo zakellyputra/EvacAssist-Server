@@ -18,41 +18,41 @@ function mapAcledRecord(record) {
   };
 }
 
-function getMockAcledRecords() {
-  return [
-    {
-      event_id_cnty: 'acled-001',
-      event_type: 'Armed clash',
-      sub_event_type: 'Armed clash',
-      notes: 'Armed clash reported near the northern corridor checkpoint.',
-      latitude: 40.7558,
-      longitude: -73.9784,
-      location: 'North Corridor',
-      admin1: 'Metro District',
-      country: 'USA',
-      event_date: new Date().toISOString(),
-      source_url: 'https://acleddata.com',
-    },
-  ];
-}
-
 export default async function acledFetcher() {
   try {
-    let records = [];
-    if (process.env.ACLED_BASE_URL) {
-      const response = await axios.get(process.env.ACLED_BASE_URL, {
-        params: {
-          key: process.env.ACLED_API_KEY,
-          email: process.env.ACLED_EMAIL,
-          limit: 50,
-        },
-        timeout: 15000,
-      });
-      records = Array.isArray(response.data?.data) ? response.data.data : [];
-    } else {
-      records = getMockAcledRecords();
+    if (String(process.env.ACLED_DISABLED ?? '').toLowerCase() === 'true') {
+      return {
+        source: 'acled',
+        mode: 'disabled',
+        totalFetched: 0,
+        inserted: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+      };
     }
 
+    if (!process.env.ACLED_BASE_URL || !process.env.ACLED_API_KEY || !process.env.ACLED_EMAIL) {
+      return {
+        source: 'acled',
+        mode: 'unconfigured',
+        totalFetched: 0,
+        inserted: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+      };
+    }
+
+    const response = await axios.get(process.env.ACLED_BASE_URL, {
+      params: {
+        key: process.env.ACLED_API_KEY,
+        email: process.env.ACLED_EMAIL,
+        limit: 50,
+      },
+      timeout: 15000,
+    });
+    const records = Array.isArray(response.data?.data) ? response.data.data : [];
     return upsertRawEvents('acled', records.map(mapAcledRecord));
   } catch (error) {
     console.error('[conflict-intel] ACLED fetch failed:', error.message);

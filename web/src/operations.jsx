@@ -36,6 +36,96 @@ function formatRiskLevelLabel(riskLevel) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
+function extractGeometryCoordinates(geometry) {
+  if (!geometry?.type || !geometry?.coordinates) return [];
+  if (geometry.type === 'Point') return [geometry.coordinates];
+  if (geometry.type === 'Polygon') return geometry.coordinates.flat(1);
+  if (geometry.type === 'MultiPolygon') return geometry.coordinates.flat(2);
+  return [];
+}
+
+function deriveConflictMapViewport(conflictZones) {
+  const coordinates = (Array.isArray(conflictZones) ? conflictZones : [])
+    .flatMap((zone) => extractGeometryCoordinates(zone.geometry))
+    .filter((pair) => Array.isArray(pair) && pair.length >= 2)
+    .map(([lng, lat]) => [Number(lng), Number(lat)])
+    .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat));
+
+  if (!coordinates.length) return null;
+
+  const lngs = coordinates.map(([lng]) => lng);
+  const lats = coordinates.map(([, lat]) => lat);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+
+  return {
+    center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2],
+    bounds: [
+      [minLng, minLat],
+      [maxLng, maxLat],
+    ],
+  };
+}
+
+function deriveConflictCountryItems(conflictZones) {
+  const grouped = new Map();
+
+  for (const zone of Array.isArray(conflictZones) ? conflictZones : []) {
+    const country = zone.metadata?.countries?.[0] ?? 'Unknown';
+    const existing = grouped.get(country) ?? {
+      id: `conflict-country-${country.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+      country,
+      zoneCount: 0,
+      highestScore: 0,
+      highestRiskLevel: 'green',
+      coordinates: [],
+      zones: [],
+    };
+
+    existing.zoneCount += 1;
+    existing.highestScore = Math.max(existing.highestScore, zone.score ?? 0);
+    const riskRank = { green: 1, yellow: 2, orange: 3, red: 4 };
+    if ((riskRank[zone.riskLevel] ?? 0) >= (riskRank[existing.highestRiskLevel] ?? 0)) {
+      existing.highestRiskLevel = zone.riskLevel ?? existing.highestRiskLevel;
+    }
+    existing.coordinates.push(...extractGeometryCoordinates(zone.geometry));
+    existing.zones.push(zone);
+    grouped.set(country, existing);
+  }
+
+  return [...grouped.values()].map((group) => {
+    const validCoordinates = group.coordinates
+      .filter((pair) => Array.isArray(pair) && pair.length >= 2)
+      .map(([lng, lat]) => [Number(lng), Number(lat)])
+      .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat));
+
+    if (!validCoordinates.length) return null;
+
+    const lngs = validCoordinates.map(([lng]) => lng);
+    const lats = validCoordinates.map(([, lat]) => lat);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+
+    return {
+      id: group.id,
+      country: group.country,
+      zoneCount: group.zoneCount,
+      highestScore: group.highestScore,
+      highestRiskLevel: group.highestRiskLevel,
+      center: [(minLng + maxLng) / 2, (minLat + maxLat) / 2],
+      bounds: [
+        [minLng, minLat],
+        [maxLng, maxLat],
+      ],
+      zones: group.zones,
+    };
+  }).filter(Boolean);
+}
+
 function buildConflictZoneMapItem(zone) {
   const geometryFeature = zone?.geometry
     ? {
@@ -63,6 +153,7 @@ function buildConflictZoneMapItem(zone) {
     centroid: zone.centroid,
     geometry: geometryFeature,
     metadata: zone.metadata ?? {},
+    country: zone.metadata?.countries?.[0] ?? null,
   };
 }
 
@@ -343,9 +434,11 @@ export function OperationsProvider({ children }) {
     }
 
     loadConflictIntel();
+    const intervalId = window.setInterval(loadConflictIntel, 30000);
 
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, []);
 
@@ -532,6 +625,7 @@ export function OperationsProvider({ children }) {
   const liveMapResolved = useMemo(() => {
     const rideGroupMap = new Map(rideGroupOperationalViews.map((group) => [group.id, group]));
     const alertMap = new Map(alertsWithDecisionSupport.map((alert) => [alert.id, alert]));
+    const hasConflictIntelScene = conflictIntelState.status === 'ready' && conflictIntelZones.length > 0;
 
     const resolvedRideGroups = liveMapData.mapRideGroups.map((item) => ({
       ...item,
@@ -567,18 +661,24 @@ export function OperationsProvider({ children }) {
         || group.linkedAlerts?.some((alert) => alert.relatedZone === zone.metadata?.zoneName)
       )).slice(0, 5),
     }));
+    const conflictCountries = deriveConflictCountryItems(resolvedConflictZones);
+
+    const conflictViewport = deriveConflictMapViewport(resolvedConflictZones);
 
     return {
-      center: liveMapData.center,
-      zoom: liveMapData.zoom,
-      rideGroups: resolvedRideGroups,
-      drivers: resolvedDrivers,
-      pickupPoints: resolvedPickupPoints,
-      zones: resolvedZones,
+      center: conflictViewport?.center ?? liveMapData.center,
+      zoom: conflictViewport ? 6 : liveMapData.zoom,
+      bounds: conflictViewport?.bounds ?? null,
+      rideGroups: hasConflictIntelScene ? [] : resolvedRideGroups,
+      drivers: hasConflictIntelScene ? [] : resolvedDrivers,
+      pickupPoints: hasConflictIntelScene ? [] : resolvedPickupPoints,
+      zones: hasConflictIntelScene ? [] : resolvedZones,
       conflictZones: resolvedConflictZones,
-      alertAreas: resolvedAlertAreas,
+      conflictCountries,
+      alertAreas: hasConflictIntelScene ? [] : resolvedAlertAreas,
+      sceneMode: hasConflictIntelScene ? 'conflict-intel' : 'mock-operations',
     };
-  }, [alertsWithDecisionSupport, conflictIntelZones, rideGroupOperationalViews]);
+  }, [alertsWithDecisionSupport, conflictIntelState.status, conflictIntelZones, rideGroupOperationalViews]);
 
   const filteredLiveMapData = useMemo(() => {
     const zoneMatch = (zoneValue) => mapFilters.zone === 'All' || zoneValue === mapFilters.zone;
@@ -608,6 +708,7 @@ export function OperationsProvider({ children }) {
       conflictZones: mapFilters.showConflictZones
         ? liveMapResolved.conflictZones.filter((item) => statusMatch(item.riskLabel) || mapFilters.status === 'All')
         : [],
+      conflictCountries: mapFilters.showConflictZones ? liveMapResolved.conflictCountries : [],
       alertAreas: mapFilters.showAlerts ? visibleAlertAreas : [],
     };
   }, [liveMapResolved, mapFilters]);
@@ -643,12 +744,22 @@ export function OperationsProvider({ children }) {
       const item = liveMapResolved.conflictZones.find((entry) => entry.id === selectedMapItem.id);
       return item ? { type: 'conflictZone', item } : null;
     }
+    if (selectedMapItem.type === 'conflictCountry') {
+      const item = liveMapResolved.conflictCountries.find((entry) => entry.id === selectedMapItem.id);
+      return item ? { type: 'conflictCountry', item } : null;
+    }
     if (selectedMapItem.type === 'alertArea') {
       const item = liveMapResolved.alertAreas.find((entry) => entry.id === selectedMapItem.id);
       return item ? { type: 'alertArea', item } : null;
     }
     return null;
   }, [liveMapResolved, selectedMapItem]);
+
+  useEffect(() => {
+    if (!selectedMapItem) return;
+    if (selectedMapItemData) return;
+    setSelectedMapItem(null);
+  }, [selectedMapItem, selectedMapItemData]);
 
   function openRideGroup(target) {
     const rideGroup = typeof target === 'object' && target

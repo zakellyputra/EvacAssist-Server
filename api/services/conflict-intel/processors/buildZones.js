@@ -99,6 +99,8 @@ export default async function buildZones() {
       metadata: {
         categories: [...new Set(uniqueEvents.map((event) => event.category))],
         eventIds: uniqueEvents.map((event) => event.eventId),
+        countries: [...new Set(uniqueEvents.map((event) => event.country).filter(Boolean))],
+        locationNames: [...new Set(uniqueEvents.map((event) => event.locationName).filter(Boolean))],
       },
     };
 

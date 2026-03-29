@@ -1071,6 +1071,19 @@
   background: #ecece8;
 }
 
+.map-marker-node-conflictCountry {
+  min-width: 8rem;
+  border-radius: 999px;
+  border-color: #7e1717;
+  background: rgba(255, 244, 244, 0.96);
+  box-shadow: 0 10px 24px rgba(126, 23, 23, 0.18);
+}
+
+.map-marker-node-conflictCountry strong {
+  background: rgba(126, 23, 23, 0.1);
+  color: #7e1717;
+}
+
 .map-marker-node.is-selected {
   background: #111111;
   color: #ffffff;

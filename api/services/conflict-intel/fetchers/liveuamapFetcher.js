@@ -1,61 +1,126 @@
-import axios from 'axios';
 import { upsertRawEvents } from '../utils/rawEventIngest.js';
+import { fetchFromApi, fetchFromHtml, resolveLiveuamapMode } from '../utils/liveuamapClient.js';
+import {
+  getMockLiveuamapRawEvents,
+  parseApiResponseToRawEvents,
+  parseHtmlToRawEvents,
+} from '../utils/liveuamapParser.js';
 
-function mapLiveuamapRecord(record) {
+function buildSummary(mode) {
   return {
-    sourceEventId: String(record.id),
-    sourceUrl: record.url ?? process.env.LIVEUAMAP_BASE_URL ?? '',
-    title: record.title ?? 'Live feed event',
-    description: record.description ?? 'Live conflict feed event.',
-    eventType: record.type ?? 'military',
-    eventSubType: record.subtype ?? record.type ?? 'military',
-    lat: Number(record.lat),
-    lng: Number(record.lng),
-    locationName: record.locationName ?? record.title ?? 'Unknown location',
-    country: record.country ?? 'Unknown',
-    reportedAt: record.reportedAt ? new Date(record.reportedAt) : new Date(),
-    rawPayload: record,
+    source: 'liveuamap',
+    mode,
+    totalFetched: 0,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    failed: 0,
+    errors: [],
   };
 }
 
-function getMockLiveuamapRecords() {
-  return [
-    {
-      id: 'live-001',
-      title: 'Checkpoint and convoy activity reported',
-      description: 'Open-source live feed indicates military movement near the west corridor.',
-      type: 'military',
-      subtype: 'military',
-      lat: 40.7445,
-      lng: -73.9994,
-      country: 'USA',
-      locationName: 'West Corridor',
-      reportedAt: new Date().toISOString(),
-    },
-  ];
+function mergeSummaries(baseSummary, ingestSummary) {
+  return {
+    ...baseSummary,
+    totalFetched: ingestSummary.totalFetched,
+    inserted: ingestSummary.inserted,
+    updated: ingestSummary.updated,
+    skipped: baseSummary.skipped + ingestSummary.skipped,
+    failed: baseSummary.failed + ingestSummary.failed,
+  };
+}
+
+async function persistRawEvents(mode, rawEvents, parserErrors = []) {
+  const summary = buildSummary(mode);
+  summary.skipped += parserErrors.length;
+  summary.errors.push(...parserErrors);
+
+  const ingestSummary = await upsertRawEvents('liveuamap', rawEvents);
+  return mergeSummaries(summary, ingestSummary);
+}
+
+async function runApiMode() {
+  const fetchedAt = new Date();
+  const payload = await fetchFromApi();
+  const { rawEvents, errors } = parseApiResponseToRawEvents(payload, fetchedAt);
+  return persistRawEvents('api', rawEvents, errors);
+}
+
+async function runHtmlMode() {
+  const fetchedAt = new Date();
+  const html = await fetchFromHtml();
+  const { rawEvents, errors } = parseHtmlToRawEvents(html, fetchedAt);
+  return persistRawEvents('html', rawEvents, errors);
+}
+
+async function runMockMode() {
+  const fetchedAt = new Date();
+  const rawEvents = getMockLiveuamapRawEvents(fetchedAt);
+  return persistRawEvents('mock', rawEvents);
 }
 
 export default async function liveuamapFetcher() {
+  const requestedMode = resolveLiveuamapMode();
+  const allowHtmlFallback = Boolean(process.env.LIVEUAMAP_BASE_URL);
+  const allowMockFallback = true;
+
   try {
-    let records = [];
-    if (process.env.LIVEUAMAP_BASE_URL) {
-      const response = await axios.get(process.env.LIVEUAMAP_BASE_URL, { timeout: 15000 });
-      records = Array.isArray(response.data?.data) ? response.data.data : [];
-    } else {
-      records = getMockLiveuamapRecords();
+    if (requestedMode === 'mock') {
+      return await runMockMode();
     }
 
-    return upsertRawEvents('liveuamap', records.map(mapLiveuamapRecord));
+    if (requestedMode === 'html') {
+      try {
+        return await runHtmlMode();
+      } catch (htmlError) {
+        if (!allowMockFallback) throw htmlError;
+        const fallbackSummary = await runMockMode();
+        fallbackSummary.errors.unshift(`HTML mode failed: ${htmlError.message}`);
+        fallbackSummary.mode = 'mock';
+        fallbackSummary.failed += 1;
+        return fallbackSummary;
+      }
+    }
+
+    try {
+      return await runApiMode();
+    } catch (apiError) {
+      if (allowHtmlFallback) {
+        try {
+          const htmlSummary = await runHtmlMode();
+          htmlSummary.errors.unshift(`API mode failed: ${apiError.message}`);
+          htmlSummary.mode = 'html';
+          htmlSummary.failed += 1;
+          return htmlSummary;
+        } catch (htmlError) {
+          if (!allowMockFallback) throw htmlError;
+          const mockSummary = await runMockMode();
+          mockSummary.errors.unshift(`HTML fallback failed: ${htmlError.message}`);
+          mockSummary.errors.unshift(`API mode failed: ${apiError.message}`);
+          mockSummary.mode = 'mock';
+          mockSummary.failed += 2;
+          return mockSummary;
+        }
+      }
+
+      if (!allowMockFallback) throw apiError;
+      const mockSummary = await runMockMode();
+      mockSummary.errors.unshift(`API mode failed: ${apiError.message}`);
+      mockSummary.mode = 'mock';
+      mockSummary.failed += 1;
+      return mockSummary;
+    }
   } catch (error) {
     console.error('[conflict-intel] Liveuamap fetch failed:', error.message);
     return {
       source: 'liveuamap',
+      mode: requestedMode,
       totalFetched: 0,
       inserted: 0,
       updated: 0,
       skipped: 0,
       failed: 1,
-      error: error.message,
+      errors: [error.message],
     };
   }
 }

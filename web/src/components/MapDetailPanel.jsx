@@ -274,6 +274,47 @@ export default function MapDetailPanel({ selected }) {
     );
   }
 
+  if (selected.type === 'conflictCountry') {
+    const country = selected.item;
+    return (
+      <aside className="map-detail-panel">
+        <div className="map-detail-header">
+          <div>
+            <p className="kicker">Conflict Country</p>
+            <h2>{country.country}</h2>
+            <p>{country.zoneCount} mapped conflict zone{country.zoneCount === 1 ? '' : 's'} are currently active in this country view. Select a country marker to zoom directly into that operating picture.</p>
+          </div>
+          <button type="button" className="button button-secondary" onClick={clearMapSelection}>Clear</button>
+        </div>
+        <div className="map-detail-body">
+          <div className="detail-grid">
+            <div className="detail-item"><span>Country</span><strong>{country.country}</strong></div>
+            <div className="detail-item"><span>Zone count</span><strong>{country.zoneCount}</strong></div>
+            <div className="detail-item"><span>Highest risk</span><StatusBadge value={String(country.highestRiskLevel ?? 'unknown').replace(/^./, (char) => char.toUpperCase())} tone={country.highestRiskLevel === 'red' || country.highestRiskLevel === 'orange' ? 'strong' : country.highestRiskLevel === 'yellow' ? 'muted' : 'default'} /></div>
+            <div className="detail-item"><span>Highest score</span><strong>{country.highestScore}</strong></div>
+          </div>
+          <div className="detail-block">
+            <h3>Country Zone Breakdown</h3>
+            <div className="linked-list">
+              {country.zones.map((zone) => (
+                <article key={zone.zoneId} className="linked-entity">
+                  <div>
+                    <strong>{zone.zoneType.replace(/_/g, ' ')}</strong>
+                    <span>{zone.metadata?.locationNames?.[0] ?? zone.zoneId}</span>
+                  </div>
+                  <div className="linked-entity-meta">
+                    <StatusBadge value={zone.riskLabel} tone={zone.riskLevel === 'red' || zone.riskLevel === 'orange' ? 'strong' : zone.riskLevel === 'yellow' ? 'muted' : 'default'} />
+                    <strong>{zone.score}</strong>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+
   if (selected.type === 'alertArea') {
     const alertArea = selected.item;
     const alert = alertArea.alert;

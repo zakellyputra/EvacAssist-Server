@@ -12,6 +12,21 @@ function buildFeatureCollection(features) {
   };
 }
 
+function geometryBounds(geometry) {
+  const coordinates = geometry?.type === 'Polygon'
+    ? geometry.coordinates.flat(1)
+    : geometry?.type === 'MultiPolygon'
+      ? geometry.coordinates.flat(2)
+      : [];
+  if (!coordinates.length) return null;
+  const lngs = coordinates.map(([lng]) => Number(lng));
+  const lats = coordinates.map(([, lat]) => Number(lat));
+  return [
+    [Math.min(...lngs), Math.min(...lats)],
+    [Math.max(...lngs), Math.max(...lats)],
+  ];
+}
+
 export default function MapCanvas({ data, selectedMapItem, onSelect }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -25,6 +40,7 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
   const pickupPoints = Array.isArray(data?.pickupPoints) ? data.pickupPoints : [];
   const zones = Array.isArray(data?.zones) ? data.zones : [];
   const conflictZones = Array.isArray(data?.conflictZones) ? data.conflictZones : [];
+  const conflictCountries = Array.isArray(data?.conflictCountries) ? data.conflictCountries : [];
   const alertAreas = Array.isArray(data?.alertAreas) ? data.alertAreas : [];
 
   const zoneCollection = useMemo(() => buildFeatureCollection(zones), [zones]);
@@ -217,10 +233,34 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
     const map = mapRef.current;
     if (!map) return;
 
+    if (Array.isArray(data?.bounds) && data.bounds.length === 2) {
+      map.fitBounds(data.bounds, {
+        padding: 48,
+        maxZoom: 7,
+        duration: 0,
+      });
+      return;
+    }
+
+    if (Array.isArray(data?.center)) {
+      map.jumpTo({
+        center: data.center,
+        zoom: data?.zoom ?? map.getZoom(),
+      });
+    }
+  }, [data?.bounds, data?.center, data?.zoom]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
     markerRefs.current.forEach((marker) => marker.remove());
     markerRefs.current = [];
 
     const entries = [
+      ...conflictCountries
+        .filter((item) => item?.center && item?.id)
+        .map((item) => ({ ...item, type: 'conflictCountry', coordinates: item.center, label: item.country })),
       ...rideGroups
         .filter((item) => item?.coordinates && item?.rideGroup?.id)
         .map((item) => ({ ...item, type: 'rideGroup', coordinates: item.coordinates, label: item.rideGroup.id })),
@@ -240,10 +280,14 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       el.className = `map-marker-node map-marker-node-${entry.type}${priorityBand ? ` map-marker-priority-${priorityBand.markerClass}` : ''}${selectedRef.current?.type === entry.type && selectedId === entry.id ? ' is-selected' : ''}`;
       el.innerHTML = entry.type === 'rideGroup'
         ? `<span>${entry.label}</span><strong>${formatPriorityValue(entry.rideGroup?.priorityScore)}</strong>`
-        : `<span>${entry.label}</span>`;
+        : entry.type === 'conflictCountry'
+          ? `<span>${entry.label}</span><strong>${entry.zoneCount} zones</strong>`
+          : `<span>${entry.label}</span>`;
       el.setAttribute('aria-label', entry.type === 'rideGroup'
         ? `${entry.label} priority ${formatPriorityValue(entry.rideGroup?.priorityScore)}`
-        : entry.label);
+        : entry.type === 'conflictCountry'
+          ? `${entry.label} ${entry.zoneCount} conflict zones`
+          : entry.label);
       el.addEventListener('click', () => onSelect(entry.type, entry.id));
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
@@ -251,7 +295,7 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
         .addTo(map);
       markerRefs.current.push(marker);
     });
-  }, [drivers, onSelect, pickupPoints, rideGroups, selectedMapItem]);
+  }, [conflictCountries, drivers, onSelect, pickupPoints, rideGroups, selectedMapItem]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -269,7 +313,31 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       coordinates = pickupPoints.find((item) => item.id === selectedMapItem.id)?.coordinates ?? null;
     }
     if (selectedMapItem.type === 'conflictZone') {
-      coordinates = conflictZones.find((item) => item.id === selectedMapItem.id)?.centroid?.coordinates ?? null;
+      const zone = conflictZones.find((item) => item.id === selectedMapItem.id);
+      const bounds = geometryBounds(zone?.geometry?.geometry ?? zone?.geometry);
+      if (bounds) {
+        map.fitBounds(bounds, {
+          padding: 52,
+          maxZoom: 8,
+          essential: true,
+          duration: 700,
+        });
+        return;
+      }
+      coordinates = zone?.centroid?.coordinates ?? null;
+    }
+    if (selectedMapItem.type === 'conflictCountry') {
+      const country = conflictCountries.find((item) => item.id === selectedMapItem.id);
+      if (country?.bounds) {
+        map.fitBounds(country.bounds, {
+          padding: 64,
+          maxZoom: 6,
+          essential: true,
+          duration: 700,
+        });
+        return;
+      }
+      coordinates = country?.center ?? null;
     }
 
     if (!coordinates) return;
@@ -280,7 +348,7 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       essential: true,
       duration: 700,
     });
-  }, [conflictZones, drivers, pickupPoints, rideGroups, selectedMapItem]);
+  }, [conflictCountries, conflictZones, drivers, pickupPoints, rideGroups, selectedMapItem]);
 
   return <div ref={containerRef} className="live-map-canvas" />;
 }

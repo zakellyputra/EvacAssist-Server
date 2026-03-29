@@ -369,6 +369,221 @@ export const incidents = [
   { _id: 'incident-205', type: 'road_block', severity: 'low', title: 'Route note requires dispatch acknowledgement', description: 'Central Spine outbound path for RG-118 carries an advisory notice after lane narrowing near the annex intersection.', location: { lat: -1.2902, lng: 36.8171, accuracy: 10, timestamp: '2026-03-28T08:05:00-04:00' }, zoneId: 'zone-core-1', reportedByUserId: 'user-admin-001', source: 'ai', isActive: false, createdAt: '2026-03-28T08:05:00-04:00', resolvedAt: '2026-03-28T08:18:00-04:00', updatedAt: '2026-03-28T08:18:00-04:00' },
 ];
 
+const generatedDriverSeeds = Array.from({ length: 12 }, (_, index) => {
+  const code = 31 + index;
+  const suffix = `g${code}`;
+  return {
+    userId: `user-driver-${suffix}`,
+    driverId: `driver-${suffix}`,
+    vehicleId: `vehicle-${suffix}`,
+    fullName: `Standby Driver ${code}`,
+    label: `Van ${code}`,
+    plateNumber: `EA-${String(code).padStart(2, '0')}`,
+    lng: 36.815 + ((index % 4) * 0.006),
+    lat: -1.307 + (Math.floor(index / 4) * 0.009),
+    seatCapacity: 4 + (index % 4),
+    wheelchairAccessible: index % 3 === 0,
+    status: index % 5 === 0 ? 'available' : index % 5 === 1 ? 'assigned' : index % 5 === 2 ? 'en_route_pickup' : 'unavailable',
+    updatedAt: `2026-03-28T08:${String(12 + index).padStart(2, '0')}:00-04:00`,
+  };
+});
+
+users.push(...generatedDriverSeeds.map((seed, index) => ({
+  _id: seed.userId,
+  fullName: seed.fullName,
+  phone: `+1-555-02${String(index + 10).padStart(2, '0')}`,
+  email: `${seed.suffix ?? seed.userId}@evacassist.local`,
+  passwordHash: 'demo-driver-hash',
+  role: 'driver',
+  isVerified: true,
+  isActive: true,
+  createdAt: '2026-03-20T09:00:00-04:00',
+  updatedAt: seed.updatedAt,
+})));
+
+vehicles.push(...generatedDriverSeeds.map((seed) => ({
+  _id: seed.vehicleId,
+  driverUserId: seed.userId,
+  type: seed.seatCapacity >= 7 ? 'bus' : 'van',
+  label: seed.label,
+  plateNumber: seed.plateNumber,
+  seatCapacity: seed.seatCapacity,
+  wheelchairAccessible: seed.wheelchairAccessible,
+  fuelLevelPercent: 45 + ((seed.seatCapacity * 7) % 45),
+  isActive: true,
+  currentLocation: { lat: seed.lat, lng: seed.lng, accuracy: 12, timestamp: seed.updatedAt },
+  createdAt: '2026-03-20T09:00:00-04:00',
+  updatedAt: seed.updatedAt,
+})));
+
+drivers.push(...generatedDriverSeeds.map((seed) => ({
+  _id: seed.driverId,
+  userId: seed.userId,
+  vehicleId: seed.vehicleId,
+  licenseVerified: true,
+  status: seed.status,
+  currentLocation: { lat: seed.lat, lng: seed.lng, accuracy: 12, timestamp: seed.updatedAt },
+  lastHeartbeatAt: seed.updatedAt,
+  capacityOverride: seed.seatCapacity,
+  notes:
+    seed.status === 'available' ? 'Reserve unit ready for new assignments.' :
+    seed.status === 'assigned' ? 'Assigned to an active overflow ride.' :
+    seed.status === 'en_route_pickup' ? 'Moving toward a secondary pickup lane.' :
+    'Awaiting corridor clearance for reassignment.',
+  createdAt: '2026-03-20T09:00:00-04:00',
+  updatedAt: seed.updatedAt,
+})));
+
+const shelterList = [...shelters];
+const statusCycle = ['planned', 'driver_assigned', 'driver_assigned', 'planned', 'in_transit', 'driver_assigned'];
+const requestStatusCycle = ['reviewing', 'assigned', 'assigned', 'reviewing', 'en_route', 'assigned'];
+const priorityCycle = ['critical', 'high', 'medium', 'high', 'critical', 'medium'];
+
+Array.from({ length: 24 }, (_, index) => {
+  const numericId = 301 + index;
+  const rideCode = `RG-${numericId}`;
+  const tripId = `trip-rg-${numericId}`;
+  const requestId = `request-rg-${numericId}`;
+  const shelter = shelterList[index % shelterList.length];
+  const zone = zones.find((item) => item._id === shelter.zoneId);
+  const driverSeed = generatedDriverSeeds[index % generatedDriverSeeds.length];
+  const hasDriver = index % 4 !== 0;
+  const hasVehicle = hasDriver && index % 6 !== 0;
+  const tripStatus = statusCycle[index % statusCycle.length];
+  const requestStatus = requestStatusCycle[index % requestStatusCycle.length];
+  const priorityLevel = priorityCycle[index % priorityCycle.length];
+  const peopleCount = 3 + (index % 5);
+  const pickupLat = Number((shelter.location.lat + (((index % 3) - 1) * 0.0018)).toFixed(6));
+  const pickupLng = Number((shelter.location.lng + (((index % 4) - 1.5) * 0.0015)).toFixed(6));
+  const dropoffLat = Number((pickupLat + 0.015 + ((index % 2) * 0.004)).toFixed(6));
+  const dropoffLng = Number((pickupLng + 0.021 - ((index % 3) * 0.003)).toFixed(6));
+  const createdMinute = String((10 + index) % 60).padStart(2, '0');
+  const updatedMinute = String((20 + index) % 60).padStart(2, '0');
+  const createdAt = `2026-03-28T07:${createdMinute}:00-04:00`;
+  const updatedAt = `2026-03-28T08:${updatedMinute}:00-04:00`;
+  const driverUserId = hasDriver ? driverSeed.userId : null;
+  const vehicleId = hasVehicle ? driverSeed.vehicleId : null;
+  const uiVehicleLabel = hasVehicle ? driverSeed.label : hasDriver ? 'Vehicle pending' : 'Pending dispatch';
+
+  evacuationRequests.push({
+    _id: requestId,
+    requesterUserId: 'user-admin-001',
+    pickupLocation: { lat: pickupLat, lng: pickupLng, accuracy: 10 + (index % 5), timestamp: createdAt },
+    destinationZoneId: shelter.zoneId,
+    peopleCount,
+    priorityLevel,
+    hasChildren: index % 3 === 0,
+    hasElderly: index % 4 === 0,
+    hasInjured: index % 7 === 0,
+    hasDisabilitySupportNeeds: index % 5 === 0,
+    notes: `${rideCode} generated overflow group`,
+    status: requestStatus,
+    assignedTripId: tripId,
+    assignedVehicleId: vehicleId,
+    assignedDriverUserId: driverUserId,
+    createdAt,
+    updatedAt,
+  });
+
+  trips.push({
+    _id: tripId,
+    requestId,
+    driverUserId,
+    vehicleId,
+    pickupLocation: { lat: pickupLat, lng: pickupLng, accuracy: 10 + (index % 4), timestamp: createdAt },
+    dropoffLocation: { lat: dropoffLat, lng: dropoffLng, accuracy: 25, timestamp: updatedAt },
+    plannedRouteId: null,
+    activeRouteId: null,
+    status: tripStatus,
+    estimatedDistanceKm: Number((4.2 + ((index % 7) * 0.8)).toFixed(1)),
+    estimatedDurationMin: 14 + ((index % 7) * 3),
+    startedAt: tripStatus === 'in_transit' ? updatedAt : null,
+    completedAt: null,
+    createdAt,
+    updatedAt,
+  });
+
+  tripUi[tripId] = {
+    displayId: rideCode,
+    pickupPoint: shelter.name,
+    pickupDetail: `${zoneUi[shelter.zoneId].corridor} staging lane ${1 + (index % 4)}`,
+    vehicleLabel: uiVehicleLabel,
+    departureReadiness:
+      tripStatus === 'in_transit' ? 'Departed and tracking on corridor telemetry' :
+      !hasDriver ? 'Awaiting standby driver assignment' :
+      !hasVehicle ? 'Driver assigned, vehicle still being staged' :
+      index % 5 === 0 ? 'Held for final corridor confirmation' :
+      'Queued for staged departure release',
+    departureReadinessDetail: {
+      driverAssigned: hasDriver ? 'Yes' : 'No',
+      minimumRidersReached: peopleCount >= 4 ? 'Yes' : 'No',
+      riderCheckIn: `${Math.max(1, peopleCount - (index % 2))} of ${peopleCount} confirmed`,
+      routeAdvisory: index % 4 === 0 ? 'Manual release watch active' : `${zoneUi[shelter.zoneId].corridor} monitoring in effect`,
+      readinessEstimate:
+        tripStatus === 'in_transit' ? 'Departed' :
+        !hasDriver ? 'Pending driver assignment' :
+        !hasVehicle ? 'Pending vehicle assignment' :
+        index % 5 === 0 ? 'Held for route approval' :
+        'Pending final release',
+    },
+    summary: `${rideCode} is a generated overflow ride group operating from ${shelter.name} in ${zone.name} with ${peopleCount} riders currently staged.`,
+    routeNotes: [
+      `${zoneUi[shelter.zoneId].corridor} remains the primary outbound path for ${rideCode}.`,
+      index % 2 === 0 ? 'Dispatch may alternate to a secondary feeder route if curb congestion grows.' : 'Marshal desk requested rolling updates every five minutes until departure.',
+    ],
+    pickupIssues: index % 3 === 0
+      ? ['Generated standby queue indicates intermittent crowd build-up near the pickup edge.']
+      : [],
+    riders: Array.from({ length: peopleCount }, (_, riderIndex) => ({
+      id: `R-${numericId}-${riderIndex + 1}`,
+      name: `Rider ${numericId}-${riderIndex + 1}`,
+      checkInState: riderIndex < Math.max(1, peopleCount - (index % 2)) ? 'Checked In' : 'Pending Arrival',
+      assignmentState:
+        tripStatus === 'in_transit' ? 'In Transit' :
+        !hasDriver ? 'Awaiting Driver' :
+        hasVehicle ? 'Assigned' : 'Awaiting Vehicle',
+    })),
+  };
+
+  if (index % 2 === 0) {
+    const incidentId = `incident-${300 + index}`;
+    const alertId = `alert-${300 + index}`;
+    const unitId = hasVehicle ? `Unit ${vehicleId.split('-')[1].toUpperCase()}` : null;
+    const severity = index % 6 === 0 ? 'critical' : index % 4 === 0 ? 'high' : 'medium';
+    const incidentStatus = severity === 'critical' ? 'Open' : index % 4 === 0 ? 'In Review' : 'Monitoring';
+
+    incidents.push({
+      _id: incidentId,
+      type: severity === 'critical' ? 'security_threat' : severity === 'high' ? 'road_block' : 'other',
+      severity,
+      title:
+        !hasDriver ? `${rideCode} still lacks a confirmed driver` :
+        !hasVehicle ? `${rideCode} vehicle staging delay` :
+        `${rideCode} corridor watch condition`,
+      description:
+        !hasDriver ? `${rideCode} is holding at ${shelter.name} without a confirmed driver assignment during a heavy overflow period.` :
+        !hasVehicle ? `${rideCode} has a driver but its assigned vehicle has not yet reached the pickup lane staging point.` :
+        `${rideCode} is operating under an active corridor watch notice that may slow release timing from ${shelter.name}.`,
+      location: { lat: pickupLat, lng: pickupLng, accuracy: 15, timestamp: updatedAt },
+      zoneId: shelter.zoneId,
+      reportedByUserId: 'user-admin-001',
+      source: index % 4 === 0 ? 'system' : 'admin',
+      isActive: true,
+      createdAt: updatedAt,
+      resolvedAt: null,
+      updatedAt,
+    });
+
+    incidentUi[incidentId] = {
+      id: alertId,
+      code: `ALT-${300 + index}`,
+      relatedTripId: tripId,
+      assignedDriverUnitId: unitId,
+      status: incidentStatus,
+    };
+  }
+});
+
 export const auditLogs = [
   { _id: 'audit-1', actorUserId: 'user-admin-001', action: 'ride_group_progress', entityType: 'trip', entityId: 'trip-rg-104', metadata: { time: '08:42', title: 'RG-104 reached 4 of 5 riders', description: 'Civic Center intake added one additional rider to the east loading lane group.' }, createdAt: '2026-03-28T08:42:00-04:00' },
   { _id: 'audit-2', actorUserId: 'user-admin-001', action: 'ride_group_capacity', entityType: 'trip', entityId: 'trip-rg-108', metadata: { time: '08:38', title: 'RG-108 reached capacity', description: 'West Corridor marshals completed boarding and marked the group ready for departure release.' }, createdAt: '2026-03-28T08:38:00-04:00' },
@@ -621,7 +836,7 @@ export const liveMapData = {
   zoom: 13,
   mapRideGroups: trips.map((trip) => ({
     id: tripUi[trip._id].displayId,
-    coordinates: liveMapTripCoords[trip._id],
+    coordinates: liveMapTripCoords[trip._id] ?? [trip.pickupLocation.lng, trip.pickupLocation.lat],
     linkedAlertIds: alertsByTripId.get(trip._id) ?? [],
   })),
   mapDrivers: drivers.map((driver) => {
@@ -632,7 +847,7 @@ export const liveMapData = {
     return {
       id: driver._id,
       unitId,
-      coordinates: liveMapDriverCoords[driver._id],
+      coordinates: liveMapDriverCoords[driver._id] ?? [driver.currentLocation.lng, driver.currentLocation.lat],
       assignedRideGroupId: assignedTrip ? tripUi[assignedTrip._id].displayId : null,
       status: driverContextByUnitId.get(unitId)?.operationalState ?? 'Assigned',
       zone: zone?.name ?? 'Unknown zone',
