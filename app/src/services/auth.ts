@@ -57,6 +57,29 @@ export async function ensureSession(): Promise<AuthSession> {
   return registerEmergencyRider();
 }
 
+export async function loginDriver(phone: string, password: string): Promise<AuthSession> {
+  const response = await fetch(`${API_URL}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone, password }),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Login failed: ${body || response.statusText}`);
+  }
+  const data = await response.json();
+  const session: AuthSession = {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+  };
+  await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(session));
+  return session;
+}
+
+export async function clearSession(): Promise<void> {
+  await AsyncStorage.removeItem(AUTH_KEY);
+}
+
 export async function refreshSession(): Promise<AuthSession> {
   const existing = await getSession();
   if (!existing?.refreshToken) {

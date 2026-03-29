@@ -183,9 +183,13 @@ export default function RequestScreen() {
         visible={!!success}
         onDismiss={() => {
           setSuccess('');
-          router.replace('/');
+          router.replace('/home');
         }}
         duration={2500}
+        onIconPress={() => {
+          setSuccess('');
+          router.replace('/home');
+        }}
       >
         {success}
       </Snackbar>

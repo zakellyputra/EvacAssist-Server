@@ -30,7 +30,7 @@ export default function LoginScreen() {
     setDriverLoading(true);
     try {
       await loginDriver(phone.trim(), password);
-      router.replace('/home');
+      router.replace('/');
     } catch (e: any) {
       setError(e.message ?? 'Login failed. Check your credentials.');
     } finally {
@@ -43,10 +43,10 @@ export default function LoginScreen() {
     setPassengerLoading(true);
     try {
       await ensureSession();
-      router.replace('/home');
+      router.replace('/');
     } catch (e: any) {
       setError('Could not connect. You can still use offline mode.');
-      router.replace('/home');
+      router.replace('/');
     } finally {
       setPassengerLoading(false);
     }
