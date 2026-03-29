@@ -13,6 +13,7 @@ export default function ActivityFeed({ items }) {
             <div className="activity-item-copy">
               <strong>{item.title}</strong>
               <p>{item.description}</p>
+              {item.meta ? <span className="activity-item-meta">{item.meta}</span> : null}
             </div>
           </article>
         ))}

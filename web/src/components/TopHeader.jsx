@@ -23,11 +23,6 @@ const PAGE_META = {
     title: 'Live Spatial Operations Map',
     description: 'Monitor active ride groups, pickup points, driver movement, and restricted corridors across the current response area.',
   },
-  '/drivers': {
-    kicker: 'Drivers',
-    title: 'Driver Monitoring',
-    description: 'This workspace will host unit readiness, field check-ins, and driver coverage details.',
-  },
   '/settings': {
     kicker: 'Settings',
     title: 'Console Settings',

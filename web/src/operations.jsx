@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState } from 'react';
-import { initialActivity, initialAlerts, initialRideGroups, liveMapData, operationsMap } from './mock/operations';
+import { driverContexts, initialActivity, initialAlerts, initialRideGroups, liveMapData, operationsMap } from './mock/operations';
 
 const OperationsContext = createContext(null);
 
@@ -24,7 +24,7 @@ function byAlertPriority(a, b) {
 export function OperationsProvider({ children }) {
   const [rideGroups, setRideGroups] = useState(initialRideGroups);
   const [alerts, setAlerts] = useState(initialAlerts);
-  const [activity] = useState(initialActivity);
+  const [activity, setActivity] = useState(initialActivity);
   const [selectedRideGroupId, setSelectedRideGroupId] = useState(null);
   const [selectedAlertId, setSelectedAlertId] = useState(null);
   const [selectedMapItem, setSelectedMapItem] = useState(null);
@@ -39,27 +39,48 @@ export function OperationsProvider({ children }) {
   });
   const [confirmation, setConfirmation] = useState(null);
 
+  const driverContextMap = useMemo(
+    () => new Map(driverContexts.map((driver) => [driver.unitId, driver])),
+    [],
+  );
+
+  const rideGroupsWithRelations = useMemo(() => rideGroups.map((group) => ({
+    ...group,
+    driverContext: group.driverUnitId ? driverContextMap.get(group.driverUnitId) ?? null : null,
+  })), [driverContextMap, rideGroups]);
+
+  const alertsWithRelations = useMemo(() => alerts.map((alert) => {
+    const relatedRideGroup = rideGroupsWithRelations.find((group) => group.id === alert.relatedGroupId) ?? null;
+    const driverContext = alert.assignedDriver ? driverContextMap.get(alert.assignedDriver) ?? null : (relatedRideGroup?.driverContext ?? null);
+    return {
+      ...alert,
+      relatedRideGroup,
+      driverContext,
+      pickupPoint: alert.pickupPoint ?? relatedRideGroup?.pickupPoint ?? null,
+    };
+  }), [alerts, driverContextMap, rideGroupsWithRelations]);
+
   const selectedRideGroup = useMemo(
-    () => rideGroups.find((group) => group.id === selectedRideGroupId) ?? null,
-    [rideGroups, selectedRideGroupId],
+    () => rideGroupsWithRelations.find((group) => group.id === selectedRideGroupId) ?? null,
+    [rideGroupsWithRelations, selectedRideGroupId],
   );
 
   const selectedAlert = useMemo(
-    () => alerts.find((alert) => alert.id === selectedAlertId) ?? null,
-    [alerts, selectedAlertId],
+    () => alertsWithRelations.find((alert) => alert.id === selectedAlertId) ?? null,
+    [alertsWithRelations, selectedAlertId],
   );
 
   const dashboardStats = useMemo(() => {
-    const activeGroups = rideGroups.filter((group) => !['Completed', 'Cancelled'].includes(group.status));
+    const activeGroups = rideGroupsWithRelations.filter((group) => !['Completed', 'Cancelled'].includes(group.status));
     const openGroups = activeGroups.filter((group) => ['Open', 'Filling'].includes(group.status));
     const flaggedGroups = activeGroups.filter((group) => group.status === 'Flagged' || group.interventionState === 'Needs Review');
-    const criticalAlerts = alerts.filter((alert) => alert.status !== 'Resolved' && alert.severity === 'Critical');
+    const criticalAlerts = alertsWithRelations.filter((alert) => alert.status !== 'Resolved' && alert.severity === 'Critical');
 
     return [
       {
         label: 'Active Ride Groups',
         value: formatCount(activeGroups.length),
-        support: `${activeGroups.length} active across 4 pickup corridors with ${rideGroups.filter((group) => group.status === 'En Route').length} already moving.`,
+        support: `${activeGroups.length} active across 4 pickup corridors with ${rideGroupsWithRelations.filter((group) => group.status === 'En Route').length} already moving.`,
         context: `${openGroups.length} still forming`,
       },
       {
@@ -81,35 +102,53 @@ export function OperationsProvider({ children }) {
         context: `${flaggedGroups.length} groups flagged`,
       },
     ];
-  }, [alerts, rideGroups]);
+  }, [alertsWithRelations, rideGroupsWithRelations]);
 
   const dashboardRideGroups = useMemo(
-    () => [...rideGroups].filter((group) => group.status !== 'Completed').sort(byNewest).slice(0, 7),
-    [rideGroups],
+    () => [...rideGroupsWithRelations].filter((group) => group.status !== 'Completed').sort(byNewest).slice(0, 7),
+    [rideGroupsWithRelations],
   );
 
   const dashboardAlerts = useMemo(
-    () => [...alerts].filter((alert) => alert.status !== 'Resolved').sort(byAlertPriority).slice(0, 4),
-    [alerts],
+    () => [...alertsWithRelations].filter((alert) => alert.status !== 'Resolved').sort(byAlertPriority).slice(0, 4),
+    [alertsWithRelations],
   );
 
   const rideGroupSummaries = useMemo(() => ([
-    { label: 'Total active groups', value: rideGroups.filter((group) => !['Completed', 'Cancelled'].includes(group.status)).length },
-    { label: 'Open groups', value: rideGroups.filter((group) => group.status === 'Open').length },
-    { label: 'Full groups', value: rideGroups.filter((group) => group.status === 'Full').length },
-    { label: 'Flagged groups', value: rideGroups.filter((group) => group.status === 'Flagged').length },
-  ]), [rideGroups]);
+    { label: 'Total active groups', value: rideGroupsWithRelations.filter((group) => !['Completed', 'Cancelled'].includes(group.status)).length },
+    { label: 'Open groups', value: rideGroupsWithRelations.filter((group) => group.status === 'Open').length },
+    { label: 'Full groups', value: rideGroupsWithRelations.filter((group) => group.status === 'Full').length },
+    { label: 'Flagged groups', value: rideGroupsWithRelations.filter((group) => group.status === 'Flagged').length },
+  ]), [rideGroupsWithRelations]);
 
   const alertSummaries = useMemo(() => ([
-    { label: 'Critical alerts', value: alerts.filter((alert) => alert.severity === 'Critical' && alert.status !== 'Resolved').length },
-    { label: 'Warnings', value: alerts.filter((alert) => alert.severity === 'Warning' && alert.status !== 'Resolved').length },
-    { label: 'Monitoring only', value: alerts.filter((alert) => alert.severity === 'Monitoring' && alert.status !== 'Resolved').length },
-    { label: 'Resolved today', value: alerts.filter((alert) => alert.status === 'Resolved' || alert.resolvedToday).length },
-  ]), [alerts]);
+    { label: 'Critical alerts', value: alertsWithRelations.filter((alert) => alert.severity === 'Critical' && alert.status !== 'Resolved').length },
+    { label: 'Warnings', value: alertsWithRelations.filter((alert) => alert.severity === 'Warning' && alert.status !== 'Resolved').length },
+    { label: 'Monitoring only', value: alertsWithRelations.filter((alert) => alert.severity === 'Monitoring' && alert.status !== 'Resolved').length },
+    { label: 'Resolved today', value: alertsWithRelations.filter((alert) => alert.status === 'Resolved' || alert.resolvedToday).length },
+  ]), [alertsWithRelations]);
+
+  const driverExceptionSummary = useMemo(() => {
+    const delayedUnits = rideGroupsWithRelations.filter((group) => group.driverContext?.operationalState?.toLowerCase().includes('delayed')).length;
+    const stoppedReportingUnits = rideGroupsWithRelations.filter((group) => group.driverContext?.operationalState?.toLowerCase().includes('stopped reporting')).length;
+    const awaitingReassignment = alertsWithRelations.filter((alert) => alert.title.toLowerCase().includes('driver reassignment')).length;
+    const awaitingDepartureReadiness = rideGroupsWithRelations.filter((group) => !['Departed', 'Ready on dispatch release'].includes(group.departureReadinessDetail?.readinessEstimate) && !['Completed', 'Cancelled', 'En Route'].includes(group.status)).length;
+    return {
+      delayedUnits,
+      stoppedReportingUnits,
+      awaitingReassignment,
+      awaitingDepartureReadiness,
+      relatedAlerts: alertsWithRelations
+        .filter((alert) => alert.assignedDriver || alert.title.toLowerCase().includes('driver'))
+        .filter((alert) => alert.status !== 'Resolved')
+        .sort(byAlertPriority)
+        .slice(0, 3),
+    };
+  }, [alertsWithRelations, rideGroupsWithRelations]);
 
   const liveMapResolved = useMemo(() => {
-    const rideGroupMap = new Map(rideGroups.map((group) => [group.id, group]));
-    const alertMap = new Map(alerts.map((alert) => [alert.id, alert]));
+    const rideGroupMap = new Map(rideGroupsWithRelations.map((group) => [group.id, group]));
+    const alertMap = new Map(alertsWithRelations.map((alert) => [alert.id, alert]));
 
     const resolvedRideGroups = liveMapData.mapRideGroups.map((item) => ({
       ...item,
@@ -147,7 +186,7 @@ export function OperationsProvider({ children }) {
       zones: resolvedZones,
       alertAreas: resolvedAlertAreas,
     };
-  }, [alerts, rideGroups]);
+  }, [alertsWithRelations, rideGroupsWithRelations]);
 
   const filteredLiveMapData = useMemo(() => {
     const zoneMatch = (zoneValue) => mapFilters.zone === 'All' || zoneValue === mapFilters.zone;
@@ -221,6 +260,18 @@ export function OperationsProvider({ children }) {
     setSelectedAlertId(id);
   }
 
+  function openAlertOnMap(alertId) {
+    const area = liveMapResolved.alertAreas.find((item) => item.alertId === alertId);
+    if (area) {
+      setSelectedMapItem({ type: 'alertArea', id: area.id });
+      return;
+    }
+    const alert = alertsWithRelations.find((item) => item.id === alertId);
+    if (!alert?.relatedZone) return;
+    const zone = liveMapResolved.zones.find((item) => item.zone === alert.relatedZone);
+    if (zone) setSelectedMapItem({ type: 'zone', id: zone.id });
+  }
+
   function closeDetails() {
     setSelectedRideGroupId(null);
     setSelectedAlertId(null);
@@ -250,15 +301,85 @@ export function OperationsProvider({ children }) {
     )));
   }
 
+  function appendActivity({ title, description, meta = '' }) {
+    const now = new Date();
+    const time = new Intl.DateTimeFormat('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(now);
+
+    setActivity((current) => [
+      {
+        id: `activity-${Date.now()}`,
+        time,
+        title,
+        description,
+        meta,
+      },
+      ...current,
+    ].slice(0, 12));
+  }
+
   function runRideGroupAction(action, rideGroupId) {
-    const group = rideGroups.find((item) => item.id === rideGroupId);
+    const group = rideGroupsWithRelations.find((item) => item.id === rideGroupId);
     if (!group) return;
 
-    if (action === 'Close Joining') updateRideGroup(rideGroupId, { status: 'Full', interventionState: 'Monitoring' });
-    if (action === 'Reopen Group') updateRideGroup(rideGroupId, { status: 'Open', interventionState: 'Monitoring' });
-    if (action === 'Mark Flagged') updateRideGroup(rideGroupId, { status: 'Flagged', interventionState: 'Needs Review' });
-    if (action === 'Resolve Flag') updateRideGroup(rideGroupId, { status: 'Filling', interventionState: 'Action Taken' });
-    if (action === 'Cancel Group') updateRideGroup(rideGroupId, { status: 'Cancelled', interventionState: 'Action Taken' });
+    if (action === 'Close Joining') {
+      updateRideGroup(rideGroupId, {
+        status: 'Full',
+        interventionState: 'Monitoring',
+        departureReadinessDetail: {
+          ...group.departureReadinessDetail,
+          riderCheckIn: `${group.ridersJoined} of ${group.capacity} confirmed`,
+          readinessEstimate: 'Ready on dispatch release',
+        },
+      });
+      appendActivity({
+        title: `${rideGroupId} closed for joining`,
+        description: `Admin closed new rider intake and marked the group ready for dispatch review.`,
+        meta: `${group.pickupPoint} · ${group.zone}`,
+      });
+    }
+    if (action === 'Reopen Group') {
+      updateRideGroup(rideGroupId, {
+        status: 'Open',
+        interventionState: 'Monitoring',
+        departureReadinessDetail: {
+          ...group.departureReadinessDetail,
+          readinessEstimate: 'Awaiting additional riders',
+        },
+      });
+      appendActivity({
+        title: `${rideGroupId} reopened for joining`,
+        description: `Admin reopened the ride group to absorb additional riders in the current corridor cycle.`,
+        meta: `${group.pickupPoint} · ${group.zone}`,
+      });
+    }
+    if (action === 'Mark Flagged') {
+      updateRideGroup(rideGroupId, { status: 'Flagged', interventionState: 'Needs Review' });
+      appendActivity({
+        title: `${rideGroupId} marked flagged by admin`,
+        description: `Operational review was requested for the group due to changing corridor conditions.`,
+        meta: `${group.driver ?? 'No driver'} · ${group.zone}`,
+      });
+    }
+    if (action === 'Resolve Flag') {
+      updateRideGroup(rideGroupId, { status: 'Filling', interventionState: 'Action Taken' });
+      appendActivity({
+        title: `${rideGroupId} flag resolved`,
+        description: `Admin cleared the active flag after reviewing route and pickup readiness notes.`,
+        meta: `${group.pickupPoint} · ${group.zone}`,
+      });
+    }
+    if (action === 'Cancel Group') {
+      updateRideGroup(rideGroupId, { status: 'Cancelled', interventionState: 'Action Taken' });
+      appendActivity({
+        title: `${rideGroupId} cancelled`,
+        description: `The ride group was removed from active monitoring and marked cancelled.`,
+        meta: `${group.pickupPoint} · ${group.zone}`,
+      });
+    }
   }
 
   function requestRideGroupAction(action, rideGroupId) {
@@ -284,7 +405,21 @@ export function OperationsProvider({ children }) {
   }
 
   function markAlertStatus(alertId, status) {
+    const alert = alertsWithRelations.find((item) => item.id === alertId);
     updateAlert(alertId, { status, resolvedToday: status === 'Resolved' ? true : undefined });
+    if (alert) {
+      appendActivity({
+        title: `${alert.code ?? alert.id} moved to ${status}`,
+        description: `Admin updated ${alert.title.toLowerCase()} to ${status.toLowerCase()} for continued exception handling.`,
+        meta: `${alert.relatedGroupId ?? alert.relatedZone}`,
+      });
+    }
+  }
+
+  function focusMapOnRideGroup(rideGroupId) {
+    const item = liveMapResolved.rideGroups.find((entry) => entry.id === rideGroupId);
+    if (!item) return;
+    setSelectedMapItem({ type: 'rideGroup', id: rideGroupId });
   }
 
   function openMapRideGroupDetails(rideGroupId) {
@@ -307,8 +442,12 @@ export function OperationsProvider({ children }) {
     selectedMapItem,
     selectedMapItemData,
     activity,
-    rideGroups,
-    alerts,
+    rideGroups: rideGroupsWithRelations,
+    rawRideGroups: rideGroups,
+    alerts: alertsWithRelations,
+    rawAlerts: alerts,
+    driverContextMap,
+    driverExceptionSummary,
     dashboardStats,
     dashboardRideGroups,
     dashboardAlerts,
@@ -325,16 +464,19 @@ export function OperationsProvider({ children }) {
     closeConfirmation,
     requestRideGroupAction,
     markAlertStatus,
+    focusMapOnRideGroup,
     openMapRideGroupDetails,
     openMapAlertDetails,
+    openAlertOnMap,
     openRelatedRideGroupFromAlert(alertId) {
-      const alert = alerts.find((item) => item.id === alertId);
+      const alert = alertsWithRelations.find((item) => item.id === alertId);
       if (!alert?.relatedGroupId) return;
       openRideGroup(alert.relatedGroupId);
     },
   }), [
     activity,
     alerts,
+    alertsWithRelations,
     confirmation,
     dashboardAlerts,
     dashboardRideGroups,
@@ -343,9 +485,12 @@ export function OperationsProvider({ children }) {
     liveMapResolved,
     liveMapSummaries,
     mapFilters,
+    driverContextMap,
+    driverExceptionSummary,
     rideGroupSummaries,
     alertSummaries,
     rideGroups,
+    rideGroupsWithRelations,
     selectedAlert,
     selectedMapItem,
     selectedMapItemData,

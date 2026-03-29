@@ -1,3 +1,8 @@
+import { Link } from 'react-router-dom';
+import DepartureReadinessPanel from './DepartureReadinessPanel';
+import DriverContextCard from './DriverContextCard';
+import LinkedAlertsPanel from './LinkedAlertsPanel';
+import RideGroupOperationalNotes from './RideGroupOperationalNotes';
 import { useOperations } from '../operations';
 import StatusBadge from './StatusBadge';
 
@@ -11,8 +16,8 @@ function formatDate(value) {
 }
 
 export default function RideGroupDetailDrawer({ rideGroup, onClose }) {
-  const { alerts, requestRideGroupAction, openAlert } = useOperations();
-  const linkedAlerts = alerts.filter((alert) => rideGroup.linkedAlertIds.includes(alert.id));
+  const { alertsWithRelations, requestRideGroupAction, openAlert } = useOperations();
+  const linkedAlerts = alertsWithRelations.filter((alert) => rideGroup.linkedAlertIds.includes(alert.id));
 
   return (
     <aside className="detail-drawer" aria-label={`Ride group ${rideGroup.id} details`}>
@@ -29,6 +34,7 @@ export default function RideGroupDetailDrawer({ rideGroup, onClose }) {
 
       <div className="detail-drawer-body">
         <section className="detail-block">
+          <h3>Group Summary</h3>
           <div className="detail-grid">
             <div className="detail-item">
               <span>Status</span>
@@ -43,30 +49,8 @@ export default function RideGroupDetailDrawer({ rideGroup, onClose }) {
               <strong>{rideGroup.pickupPoint}</strong>
             </div>
             <div className="detail-item">
-              <span>Corridor</span>
-              <strong>{rideGroup.corridor}</strong>
-            </div>
-          </div>
-        </section>
-
-        <section className="detail-block">
-          <h3>Capacity & Assignment</h3>
-          <div className="detail-grid">
-            <div className="detail-item">
-              <span>Riders joined</span>
-              <strong>{rideGroup.ridersJoined}</strong>
-            </div>
-            <div className="detail-item">
-              <span>Max capacity</span>
-              <strong>{rideGroup.capacity}</strong>
-            </div>
-            <div className="detail-item">
-              <span>Assigned driver</span>
-              <strong>{rideGroup.driver}</strong>
-            </div>
-            <div className="detail-item">
-              <span>Departure readiness</span>
-              <strong>{rideGroup.departureReadiness}</strong>
+              <span>Riders / capacity</span>
+              <strong>{rideGroup.ridersJoined} / {rideGroup.capacity}</strong>
             </div>
             <div className="detail-item">
               <span>Created</span>
@@ -76,8 +60,41 @@ export default function RideGroupDetailDrawer({ rideGroup, onClose }) {
               <span>Last updated</span>
               <strong>{formatDate(rideGroup.updatedAt)}</strong>
             </div>
+            <div className="detail-item detail-item-wide">
+              <span>Operational summary</span>
+              <strong>{rideGroup.summary}</strong>
+            </div>
           </div>
         </section>
+
+        <section className="detail-block">
+          <h3>Capacity & Assignment</h3>
+          <div className="detail-grid">
+            <div className="detail-item">
+              <span>Assigned driver</span>
+              <strong>{rideGroup.driver}</strong>
+            </div>
+            <div className="detail-item">
+              <span>Driver unit</span>
+              <strong>{rideGroup.driverUnitId ?? 'Pending assignment'}</strong>
+            </div>
+            <div className="detail-item">
+              <span>Departure readiness</span>
+              <strong>{rideGroup.departureReadiness}</strong>
+            </div>
+            <div className="detail-item">
+              <span>Intervention state</span>
+              <strong>{rideGroup.interventionState}</strong>
+            </div>
+          </div>
+        </section>
+
+        <DriverContextCard driverContext={rideGroup.driverContext} assignedRideGroupId={rideGroup.id} />
+        <DepartureReadinessPanel
+          detail={rideGroup.departureReadinessDetail}
+          riderCount={rideGroup.ridersJoined}
+          capacity={rideGroup.capacity}
+        />
 
         <section className="detail-block">
           <h3>Rider Manifest</h3>
@@ -97,32 +114,8 @@ export default function RideGroupDetailDrawer({ rideGroup, onClose }) {
           </div>
         </section>
 
-        <section className="detail-block">
-          <h3>Operational Notes</h3>
-          <div className="note-list">
-            {rideGroup.routeNotes.map((note) => <p key={note}>{note}</p>)}
-            {rideGroup.pickupIssues.map((issue) => <p key={issue}>{issue}</p>)}
-          </div>
-        </section>
-
-        <section className="detail-block">
-          <h3>Linked Alerts</h3>
-          {linkedAlerts.length ? (
-            <div className="linked-list">
-              {linkedAlerts.map((alert) => (
-                <button key={alert.id} type="button" className="linked-entity" onClick={() => openAlert(alert.id)}>
-                  <div>
-                    <strong>{alert.title}</strong>
-                    <span>{alert.relatedZone}</span>
-                  </div>
-                  <StatusBadge value={alert.status} tone={alert.status === 'Resolved' ? 'default' : alert.severityTone} />
-                </button>
-              ))}
-            </div>
-          ) : (
-            <p className="empty-copy">No linked alerts are attached to this group right now.</p>
-          )}
-        </section>
+        <LinkedAlertsPanel alerts={linkedAlerts} onOpenAlert={openAlert} />
+        <RideGroupOperationalNotes routeNotes={rideGroup.routeNotes} pickupIssues={rideGroup.pickupIssues} />
       </div>
 
       <div className="detail-drawer-actions">
@@ -130,6 +123,7 @@ export default function RideGroupDetailDrawer({ rideGroup, onClose }) {
         <button type="button" className="button button-secondary" onClick={() => requestRideGroupAction('Reopen Group', rideGroup.id)}>Reopen Group</button>
         <button type="button" className="button button-secondary" onClick={() => requestRideGroupAction('Mark Flagged', rideGroup.id)}>Mark Flagged</button>
         <button type="button" className="button button-secondary" onClick={() => requestRideGroupAction('Resolve Flag', rideGroup.id)}>Resolve Flag</button>
+        <Link className="button button-secondary" to="/ride-groups">Open Ride Groups</Link>
         <button type="button" className="button button-primary" onClick={() => requestRideGroupAction('Cancel Group', rideGroup.id)}>Cancel Group</button>
       </div>
     </aside>

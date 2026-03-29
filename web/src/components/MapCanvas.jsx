@@ -171,5 +171,31 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
     });
   }, [data.drivers, data.pickupPoints, data.rideGroups, onSelect, selectedMapItem]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !selectedMapItem) return;
+
+    let coordinates = null;
+
+    if (selectedMapItem.type === 'rideGroup') {
+      coordinates = data.rideGroups.find((item) => item.id === selectedMapItem.id)?.coordinates ?? null;
+    }
+    if (selectedMapItem.type === 'driver') {
+      coordinates = data.drivers.find((item) => item.id === selectedMapItem.id)?.coordinates ?? null;
+    }
+    if (selectedMapItem.type === 'pickup') {
+      coordinates = data.pickupPoints.find((item) => item.id === selectedMapItem.id)?.coordinates ?? null;
+    }
+
+    if (!coordinates) return;
+
+    map.flyTo({
+      center: coordinates,
+      zoom: Math.max(map.getZoom(), 14),
+      essential: true,
+      duration: 700,
+    });
+  }, [data.drivers, data.pickupPoints, data.rideGroups, selectedMapItem]);
+
   return <div ref={containerRef} className="live-map-canvas" />;
 }

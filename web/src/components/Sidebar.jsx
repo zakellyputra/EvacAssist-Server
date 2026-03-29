@@ -5,7 +5,6 @@ const NAV_ITEMS = [
   { to: '/ride-groups', label: 'Ride Groups', description: 'Grouping and assignment queue' },
   { to: '/live-map', label: 'Live Map', description: 'Tracked units and route watch' },
   { to: '/alerts', label: 'Alerts', description: 'Exceptions requiring action' },
-  { to: '/drivers', label: 'Drivers', description: 'Field unit status' },
   { to: '/settings', label: 'Settings', description: 'Console configuration' },
 ];
 
@@ -37,10 +36,10 @@ export default function Sidebar() {
 
       <div className="sidebar-footer">
         <div className="sidebar-note">
-          <strong>Phase 2 Workflow</strong>
+          <strong>Phase 5 Operations</strong>
           <p>
-            Ride groups, alerts, and drill-down detail drawers now share one local operational
-            state model so the board behaves like a connected monitoring system.
+            Embedded driver context, alert handling state, and departure readiness now stay linked
+            across the dashboard, ride groups, alerts, and live map without adding extra surfaces.
           </p>
         </div>
       </div>

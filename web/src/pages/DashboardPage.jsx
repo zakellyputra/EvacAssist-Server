@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import ActivityFeed from '../components/ActivityFeed';
 import AlertsList from '../components/AlertsList';
+import DashboardExceptionSummary from '../components/DashboardExceptionSummary';
 import MapPanel from '../components/MapPanel';
 import Panel from '../components/Panel';
 import RideGroupsTable from '../components/RideGroupsTable';
@@ -13,6 +14,7 @@ export default function DashboardPage() {
     dashboardAlerts,
     dashboardRideGroups,
     dashboardStats,
+    driverExceptionSummary,
     operationsMap,
     openAlert,
     openRideGroup,
@@ -41,6 +43,7 @@ export default function DashboardPage() {
             onSelectAlert={openAlert}
             actions={<Link className="button button-secondary" to="/alerts">View all alerts</Link>}
           />
+          <DashboardExceptionSummary summary={driverExceptionSummary} onOpenAlert={openAlert} />
           <ActivityFeed items={activity} />
         </div>
       </section>

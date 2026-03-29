@@ -44,10 +44,6 @@ export default function App() {
         <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/live-map" element={<LiveMapPage />} />
         <Route
-          path="/drivers"
-          element={<PlaceholderPage title="Drivers" description="Driver monitoring, unit readiness, and check-in coverage will expand into this dedicated workspace next." />}
-        />
-        <Route
           path="/settings"
           element={<PlaceholderPage title="Settings" description="Console settings, alert rules, and workflow defaults will be managed from this area in a later phase." />}
         />

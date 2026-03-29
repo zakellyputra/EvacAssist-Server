@@ -690,6 +690,48 @@
   color: var(--text-muted);
 }
 
+.linked-entity-meta,
+.exception-summary-header,
+.driver-note {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.linked-entity-meta {
+  justify-items: end;
+}
+
+.driver-note span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.driver-note p {
+  margin: 0;
+}
+
+.driver-issue-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.driver-issue-row span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.exception-summary-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.exception-summary-header p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
 .manifest-list,
 .linked-list {
   display: grid;
@@ -708,6 +750,15 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #fff;
+}
+
+.detail-item-wide {
+  grid-column: 1 / -1;
+}
+
+.activity-item-meta {
+  color: var(--text-soft);
+  font-size: 0.82rem;
 }
 
 .dialog-backdrop {
