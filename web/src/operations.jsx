@@ -30,6 +30,42 @@ function byAlertPriority(a, b) {
   return new Date(b.createdAt) - new Date(a.createdAt);
 }
 
+function formatRiskLevelLabel(riskLevel) {
+  const normalized = String(riskLevel ?? '').toLowerCase();
+  if (!normalized) return 'Unknown';
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function buildConflictZoneMapItem(zone) {
+  const geometryFeature = zone?.geometry
+    ? {
+      type: 'Feature',
+      properties: {
+        id: zone.zoneId,
+        riskLevel: zone.riskLevel,
+        zoneType: zone.zoneType,
+        recommendedAction: zone.recommendedAction,
+      },
+      geometry: zone.geometry,
+    }
+    : null;
+
+  return {
+    id: zone.zoneId,
+    zoneId: zone.zoneId,
+    zoneType: zone.zoneType,
+    riskLevel: zone.riskLevel,
+    riskLabel: formatRiskLevelLabel(zone.riskLevel),
+    score: zone.score,
+    confidence: zone.confidence,
+    recommendedAction: zone.recommendedAction,
+    activeUntil: zone.activeUntil,
+    centroid: zone.centroid,
+    geometry: geometryFeature,
+    metadata: zone.metadata ?? {},
+  };
+}
+
 function getReopenedStatus(group) {
   if ((group.ridersJoined ?? 0) >= (group.capacity ?? Number.MAX_SAFE_INTEGER)) return 'Full';
   if ((group.ridersJoined ?? 0) > 0) return 'Filling';
@@ -229,6 +265,9 @@ export function OperationsProvider({ children }) {
   const [activity, setActivity] = useState(initialActivity);
   const [backendConflicts, setBackendConflicts] = useState([]);
   const [conflictSyncState, setConflictSyncState] = useState({ status: 'idle', error: '' });
+  const [conflictIntelZones, setConflictIntelZones] = useState([]);
+  const [conflictIntelSummary, setConflictIntelSummary] = useState(null);
+  const [conflictIntelState, setConflictIntelState] = useState({ status: 'idle', error: '' });
   const [auditEntries, setAuditEntries] = useState(() => {
     const rideGroupsByTripId = new Map(initialRideGroups.map((group) => [group.tripId, group]));
     return initialAuditLogs.map((log) => createAuditEntry(log, new Map(mockUsers.map((user) => [user._id, user])), rideGroupsByTripId));
@@ -241,6 +280,7 @@ export function OperationsProvider({ children }) {
     showDrivers: true,
     showPickupPoints: true,
     showRestrictedZones: true,
+    showConflictZones: true,
     showAlerts: true,
     zone: 'All',
     status: 'All',
@@ -269,6 +309,40 @@ export function OperationsProvider({ children }) {
     }
 
     loadConflicts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadConflictIntel() {
+      setConflictIntelState({ status: 'loading', error: '' });
+      try {
+        const [zonesResponse, summaryResponse] = await Promise.all([
+          apiFetch('/api/conflict/zones', { auth: false }),
+          apiFetch('/api/conflict/summary', { auth: false }),
+        ]);
+
+        if (cancelled) return;
+        setConflictIntelZones(Array.isArray(zonesResponse?.zones) ? zonesResponse.zones.map(buildConflictZoneMapItem) : []);
+        setConflictIntelSummary(summaryResponse ?? null);
+        setConflictIntelState({ status: 'ready', error: '' });
+      } catch (error) {
+        if (cancelled) return;
+        console.warn('Unable to load backend conflict zones for live map.', error);
+        setConflictIntelZones([]);
+        setConflictIntelSummary(null);
+        setConflictIntelState({
+          status: 'error',
+          error: error?.message ?? 'Conflict zone data unavailable',
+        });
+      }
+    }
+
+    loadConflictIntel();
 
     return () => {
       cancelled = true;
@@ -486,6 +560,14 @@ export function OperationsProvider({ children }) {
       rideGroup: item.relatedRideGroupId ? rideGroupMap.get(item.relatedRideGroupId) ?? null : null,
     })).filter((item) => item.alert);
 
+    const resolvedConflictZones = conflictIntelZones.map((zone) => ({
+      ...zone,
+      affectedRideGroups: rideGroupOperationalViews.filter((group) => (
+        group.zone === zone.metadata?.zoneName
+        || group.linkedAlerts?.some((alert) => alert.relatedZone === zone.metadata?.zoneName)
+      )).slice(0, 5),
+    }));
+
     return {
       center: liveMapData.center,
       zoom: liveMapData.zoom,
@@ -493,9 +575,10 @@ export function OperationsProvider({ children }) {
       drivers: resolvedDrivers,
       pickupPoints: resolvedPickupPoints,
       zones: resolvedZones,
+      conflictZones: resolvedConflictZones,
       alertAreas: resolvedAlertAreas,
     };
-  }, [alertsWithDecisionSupport, rideGroupOperationalViews]);
+  }, [alertsWithDecisionSupport, conflictIntelZones, rideGroupOperationalViews]);
 
   const filteredLiveMapData = useMemo(() => {
     const zoneMatch = (zoneValue) => mapFilters.zone === 'All' || zoneValue === mapFilters.zone;
@@ -522,6 +605,9 @@ export function OperationsProvider({ children }) {
       zones: mapFilters.showRestrictedZones
         ? liveMapResolved.zones.filter((item) => zoneMatch(item.zone))
         : [],
+      conflictZones: mapFilters.showConflictZones
+        ? liveMapResolved.conflictZones.filter((item) => statusMatch(item.riskLabel) || mapFilters.status === 'All')
+        : [],
       alertAreas: mapFilters.showAlerts ? visibleAlertAreas : [],
     };
   }, [liveMapResolved, mapFilters]);
@@ -531,6 +617,7 @@ export function OperationsProvider({ children }) {
     { label: 'Tracked drivers', value: filteredLiveMapData.drivers.length },
     { label: 'Active pickup points', value: filteredLiveMapData.pickupPoints.length },
     { label: 'Restricted zones', value: filteredLiveMapData.zones.length },
+    { label: 'Danger zones', value: filteredLiveMapData.conflictZones.length },
     { label: 'Map-linked alerts', value: filteredLiveMapData.alertAreas.filter((item) => item.alert?.status !== 'Resolved').length },
   ]), [filteredLiveMapData]);
 
@@ -551,6 +638,10 @@ export function OperationsProvider({ children }) {
     if (selectedMapItem.type === 'zone') {
       const item = liveMapResolved.zones.find((entry) => entry.id === selectedMapItem.id);
       return item ? { type: 'zone', item } : null;
+    }
+    if (selectedMapItem.type === 'conflictZone') {
+      const item = liveMapResolved.conflictZones.find((entry) => entry.id === selectedMapItem.id);
+      return item ? { type: 'conflictZone', item } : null;
     }
     if (selectedMapItem.type === 'alertArea') {
       const item = liveMapResolved.alertAreas.find((entry) => entry.id === selectedMapItem.id);

@@ -74,9 +74,8 @@
 }
 
 .top-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-5);
   padding: var(--space-5);
   border-bottom: 1px solid var(--border);
@@ -90,8 +89,8 @@
 }
 
 .top-header-meta {
+  align-content: start;
   justify-items: end;
-  text-align: right;
 }
 
 .dashboard-page {
@@ -112,6 +111,7 @@
   align-items: start;
 }
 
+.dashboard-primary-column,
 .dashboard-side-column {
   display: grid;
   gap: var(--space-5);
@@ -150,12 +150,11 @@
   }
 
   .top-header {
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .top-header-meta {
     justify-items: start;
-    text-align: left;
   }
 }
 

@@ -1,16 +1,136 @@
+import { Link } from 'react-router-dom';
+import MapCanvas from './MapCanvas';
+import MapLegend from './MapLegend';
 import Panel from './Panel';
+import PriorityScoreBadge from './PriorityScoreBadge';
 import StatusBadge from './StatusBadge';
+import { formatConflictCount } from '../utils/conflictDisplay';
 
-export default function MapPanel({ data }) {
+function buildSelectionSummary(selectedMapItem) {
+  if (!selectedMapItem) {
+    return {
+      title: 'No map selection',
+      description: 'Select a ride group, driver, pickup point, restricted zone, or alert area to inspect the live operational picture.',
+      actionLabel: null,
+    };
+  }
+
+  if (selectedMapItem.type === 'rideGroup') {
+    const rideGroup = selectedMapItem.item?.rideGroup ?? null;
+    if (!rideGroup) {
+      return {
+        title: 'Ride group unavailable',
+        description: 'The selected ride marker no longer has an active operational record attached.',
+        actionLabel: null,
+      };
+    }
+
+    return {
+      title: rideGroup.id,
+      description: `${rideGroup.pickupPoint} · ${rideGroup.zone} · ${formatConflictCount(rideGroup.activeConflictCount)}`,
+      actionLabel: 'Open ride details',
+      rideGroup,
+    };
+  }
+
+  if (selectedMapItem.type === 'alertArea') {
+    const alert = selectedMapItem.item?.alert ?? null;
+    return {
+      title: alert?.title ?? 'Alert area',
+      description: alert?.relatedRideGroup
+        ? `${alert.relatedRideGroup.id} · ${formatConflictCount(alert.relatedRideGroup.activeConflictCount)}`
+        : 'No linked ride group',
+      actionLabel: alert ? 'Open alert details' : null,
+      alert,
+    };
+  }
+
+  if (selectedMapItem.type === 'driver') {
+    const driver = selectedMapItem.item ?? null;
+    return {
+      title: driver?.unitId ?? 'Driver unit',
+      description: driver?.assignedRideGroupId
+        ? `Assigned to ${driver.assignedRideGroupId} in ${driver.zone}`
+        : `No active ride assignment in ${driver?.zone ?? 'unknown zone'}`,
+      actionLabel: driver?.assignedRideGroupId ? 'Open assigned ride' : null,
+      driver,
+    };
+  }
+
+  if (selectedMapItem.type === 'pickup') {
+    const pickup = selectedMapItem.item ?? null;
+    return {
+      title: pickup?.name ?? 'Pickup point',
+      description: pickup?.demandNote ?? 'Pickup demand details unavailable.',
+      actionLabel: pickup?.rideGroups?.[0] ? 'Open nearby ride' : null,
+      pickup,
+    };
+  }
+
+  if (selectedMapItem.type === 'zone') {
+    const zone = selectedMapItem.item ?? null;
+    return {
+      title: zone?.name ?? 'Restricted zone',
+      description: zone?.cautionNote ?? 'Zone caution details unavailable.',
+      actionLabel: null,
+    };
+  }
+
+  if (selectedMapItem.type === 'conflictZone') {
+    const zone = selectedMapItem.item ?? null;
+    return {
+      title: zone?.zoneId ?? 'Conflict zone',
+      description: zone
+        ? `${zone.riskLabel} risk · score ${zone.score} · ${zone.recommendedAction.replace(/_/g, ' ')}`
+        : 'Conflict zone details unavailable.',
+      actionLabel: null,
+    };
+  }
+
+  return {
+    title: 'Map selection',
+    description: 'Selected map item details unavailable.',
+    actionLabel: null,
+  };
+}
+
+export default function MapPanel({
+  summaries,
+  data,
+  selectedMapItem,
+  onSelect,
+  onOpenRideGroup,
+  onOpenAlert,
+}) {
+  const selection = buildSelectionSummary(selectedMapItem);
+
+  function handleOpenSelection() {
+    if (selection.rideGroup) {
+      onOpenRideGroup?.(selection.rideGroup.id);
+      return;
+    }
+    if (selection.alert) {
+      onOpenAlert?.(selection.alert.id);
+      return;
+    }
+    if (selection.driver?.assignedRideGroupId) {
+      onOpenRideGroup?.(selection.driver.assignedRideGroupId);
+      return;
+    }
+    if (selection.pickup?.rideGroups?.[0]?.id) {
+      onOpenRideGroup?.(selection.pickup.rideGroups[0].id);
+    }
+  }
+
   return (
     <Panel
       title="Live Operations Map"
-      subtitle="Tracked ride groups, pickup clusters, field units, and restricted corridors arranged as a command-surface preview while live mapping is being wired."
-      actions={<StatusBadge value="Simulation View" tone="default" />}
+      subtitle="Monitor active ride groups, pickup points, field units, and alert corridors on the real operational map instead of a static preview."
+      actions={<Link className="button button-secondary button-inline" to="/live-map">Open Live Map</Link>}
       className="map-panel"
     >
       <div className="map-panel-meta">
-        {data.summary.map((item) => (
+        {(Array.isArray(summaries) ? summaries : []).map((item) => (
           <div key={item.label} className="map-summary-card">
             <span>{item.label}</span>
             <strong>{item.value}</strong>
@@ -18,53 +138,44 @@ export default function MapPanel({ data }) {
         ))}
       </div>
 
-      <div className="ops-map">
-        <div className="ops-map-grid" />
-
-        {data.zones.map((zone) => (
-          <div
-            key={zone.id}
-            className={`map-zone map-zone-${zone.tone}`}
-            style={zone.style}
-          >
-            <span>{zone.label}</span>
-          </div>
-        ))}
-
-        {data.routes.map((route) => (
-          <div
-            key={route.id}
-            className={`map-route map-route-${route.tone}`}
-            style={route.style}
-          />
-        ))}
-
-        {data.markers.map((marker) => (
-          <div
-            key={marker.id}
-            className={`map-marker map-marker-${marker.type}`}
-            style={marker.style}
-          >
-            <span>{marker.label}</span>
-          </div>
-        ))}
-
-        {data.annotations.map((annotation) => (
-          <div key={annotation.id} className="map-annotation" style={annotation.style}>
-            <strong>{annotation.title}</strong>
-            <span>{annotation.text}</span>
-          </div>
-        ))}
+      <div className="map-preview-shell">
+        <MapCanvas data={data} selectedMapItem={selectedMapItem} onSelect={onSelect} />
       </div>
 
-      <div className="map-legend">
-        {data.legend.map((item) => (
-          <div key={item.label} className="legend-item">
-            <span className={`legend-swatch legend-swatch-${item.type}`} />
-            <span>{item.label}</span>
+      <section className="detail-block map-preview-summary">
+        <div>
+          <h3>{selection.title}</h3>
+          <p className="detail-copy">{selection.description}</p>
+        </div>
+
+        {selection.rideGroup ? (
+          <div className="linked-entity-meta">
+            <PriorityScoreBadge score={selection.rideGroup.priorityScore} />
+            <StatusBadge value={selection.rideGroup.readinessState ?? 'PENDING'} tone={selection.rideGroup.readinessState === 'BLOCKED' ? 'strong' : 'default'} />
+            {selection.rideGroup.hasBlockingConflicts ? <StatusBadge value="Blocking conflict" tone="strong" /> : null}
           </div>
-        ))}
-      </div>
+        ) : null}
+
+        {selection.alert ? (
+          <div className="linked-entity-meta">
+            <StatusBadge value={selection.alert.severity} tone={selection.alert.severityTone} />
+            {selection.alert.relatedRideGroup ? <PriorityScoreBadge score={selection.alert.relatedRideGroup.priorityScore} /> : null}
+          </div>
+        ) : null}
+
+        <div className="panel-actions">
+          {selection.actionLabel ? (
+            <button type="button" className="button button-secondary button-inline" onClick={handleOpenSelection}>
+              {selection.actionLabel}
+            </button>
+          ) : null}
+          <Link className="button button-secondary button-inline" to="/live-map">
+            Open full map
+          </Link>
+        </div>
+      </section>
+
+      <MapLegend />
     </Panel>
   );
 }

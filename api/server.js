@@ -18,6 +18,14 @@ import userRoutes from './routes/users.js';
 import aiRoutes from './routes/ai.js';
 import conflictRoutes from './routes/conflicts.js';
 import User from './models/User.js';
+import {
+  conflictAdminRoutes,
+  conflictPublicRoutes,
+  registerConflictIntelJob,
+  syncConflictIntelIndexes,
+} from './services/conflict-intel/index.js';
+import { routingRoutes, syncRoutingIndexes } from './services/routing/index.js';
+import { pickupZoneRoutes, syncPickupZoneIndexes } from './services/pickup-zones/index.js';
 
 import { verifyToken } from './middleware/auth.js';
 import { registerSocketEvents } from './socket/events.js';
@@ -60,6 +68,10 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/conflicts', conflictRoutes);
+app.use('/api/conflict', conflictPublicRoutes);
+app.use('/api/admin/conflict', conflictAdminRoutes);
+app.use('/api/routing', routingRoutes);
+app.use('/api/pickup-zones', pickupZoneRoutes);
 
 // Health check
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
@@ -69,12 +81,16 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 cron.schedule('0 * * * *', () => {
   decayIncidents().catch(console.error);
 });
+registerConflictIntelJob();
 
 // Connect to MongoDB Atlas then start server
 mongoose
   .connect(process.env.MONGODB_URI)
   .then(async () => {
     await User.syncIndexes();
+    await syncConflictIntelIndexes();
+    await syncRoutingIndexes();
+    await syncPickupZoneIndexes();
     console.log('MongoDB Atlas connected');
     httpServer.listen(process.env.PORT ?? 3000, () => {
       console.log(`Server running on port ${process.env.PORT ?? 3000}`);

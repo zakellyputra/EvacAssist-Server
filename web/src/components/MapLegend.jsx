@@ -4,6 +4,9 @@ export default function MapLegend() {
     ['driver', 'Driver'],
     ['pickup', 'Pickup Point'],
     ['restricted', 'Restricted Zone'],
+    ['conflict-red', 'Conflict Zone (Red)'],
+    ['conflict-orange', 'Conflict Zone (Orange)'],
+    ['conflict-yellow', 'Conflict Zone (Yellow)'],
     ['alert-area', 'Active Alert Area'],
   ];
 

@@ -62,21 +62,20 @@ export default function TopHeader() {
         <p className="kicker">{meta.kicker}</p>
         <h1>{meta.title}</h1>
         <p>{meta.description}</p>
+        <div className="top-header-updated">
+          <span className="top-header-updated-label">Last updated</span>
+          <strong>{formatTime(now)}</strong>
+        </div>
       </div>
 
       <div className="top-header-meta">
-        <div className="header-status">
-          <span className="header-status-label">Last updated</span>
-          <strong>{formatTime(now)}</strong>
-          <span>Dispatch board synchronized with the current mock operations snapshot.</span>
-        </div>
-
         <div className="profile-card">
-          <div>
-            <strong>{user?.name ?? 'Admin User'}</strong>
+          <div className="profile-card-copy">
             <span>{user?.role ?? 'Coordinator'}</span>
+            <strong>{user?.name ?? 'Admin User'}</strong>
+            <p>Dispatch board synchronized with the current mock operations snapshot.</p>
           </div>
-          <button type="button" className="button button-secondary" onClick={handleLogout}>
+          <button type="button" className="button button-secondary button-inline" onClick={handleLogout}>
             Logout
           </button>
         </div>

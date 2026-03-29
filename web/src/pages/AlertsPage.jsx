@@ -11,7 +11,7 @@ export default function AlertsPage() {
   const [severity, setSeverity] = useState('All');
   const [zone, setZone] = useState('All');
   const [group, setGroup] = useState('All');
-  const [unresolvedOnly, setUnresolvedOnly] = useState(true);
+  const [resolutionFilter, setResolutionFilter] = useState('Unresolved only');
   const [sortBy, setSortBy] = useState('Highest Severity');
   const [search, setSearch] = useState('');
 
@@ -26,14 +26,18 @@ export default function AlertsPage() {
         const matchesSeverity = severity === 'All' || alert.severity === severity;
         const matchesZone = zone === 'All' || alert.relatedZone === zone;
         const matchesGroup = group === 'All' || alert.relatedGroupId === group;
-        const matchesResolved = !unresolvedOnly || alert.status !== 'Resolved';
+        const matchesResolved = resolutionFilter === 'All' || (
+          resolutionFilter === 'Unresolved only'
+            ? alert.status !== 'Resolved'
+            : alert.status === 'Resolved'
+        );
         return matchesSearch && matchesSeverity && matchesZone && matchesGroup && matchesResolved;
       })
       .sort((a, b) => {
         if (sortBy === 'Newest') return new Date(b.createdAt) - new Date(a.createdAt);
         return (severityRank[b.severity] ?? 0) - (severityRank[a.severity] ?? 0);
       });
-  }, [alerts, group, search, severity, sortBy, unresolvedOnly, zone]);
+  }, [alerts, group, resolutionFilter, search, severity, sortBy, zone]);
 
   return (
     <div className="dashboard-page">
@@ -65,9 +69,13 @@ export default function AlertsPage() {
             ))}
           </select>
         </label>
-        <label className="inline-checkbox">
-          <input type="checkbox" checked={unresolvedOnly} onChange={(event) => setUnresolvedOnly(event.target.checked)} />
-          <span>Unresolved only</span>
+        <label className="inline-field">
+          <span>Resolution</span>
+          <select value={resolutionFilter} onChange={(event) => setResolutionFilter(event.target.value)}>
+            {['Unresolved only', 'Resolved only', 'All'].map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+          </select>
         </label>
         <label className="inline-field">
           <span>Sort</span>

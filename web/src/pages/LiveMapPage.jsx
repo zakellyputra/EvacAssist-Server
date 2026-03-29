@@ -19,7 +19,7 @@ export default function LiveMapPage() {
   } = useOperations();
 
   const zones = ['All', ...new Set(liveMapBase.pickupPoints.map((item) => item.zone))];
-  const statuses = ['All', 'Open', 'Filling', 'Full', 'En Route', 'Flagged', 'Critical', 'Warning', 'Monitoring', 'Resolved'];
+  const statuses = ['All', 'Open', 'Filling', 'Full', 'En Route', 'Flagged', 'Critical', 'Warning', 'Monitoring', 'Resolved', 'Red', 'Orange', 'Yellow', 'Green'];
 
   return (
     <div className="dashboard-page">

@@ -15,6 +15,7 @@ export default function MapFilterBar({ filters, onChange, zones, statuses }) {
           ['showDrivers', 'Drivers'],
           ['showPickupPoints', 'Pickup Points'],
           ['showRestrictedZones', 'Restricted Zones'],
+          ['showConflictZones', 'Conflict Zones'],
           ['showAlerts', 'Alerts'],
         ].map(([key, label]) => (
           <label key={key} className="inline-checkbox">

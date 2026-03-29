@@ -36,7 +36,7 @@ export default function MapDetailPanel({ selected }) {
       <aside className="map-detail-panel">
         <div className="map-detail-empty">
           <strong>No map item selected</strong>
-          <p>Select a ride group, driver, pickup point, restricted zone, or alert area on the map to inspect it.</p>
+          <p>Select a ride group, driver, pickup point, restricted zone, conflict zone, or alert area on the map to inspect it.</p>
         </div>
       </aside>
     );
@@ -229,6 +229,44 @@ export default function MapDetailPanel({ selected }) {
           </div>
           <LinkedAlertsPanel alerts={zoneAlerts} onOpenAlert={openMapAlertDetails} />
           <CrossLinkActions>
+            <Link className="button button-secondary" to="/alerts">Open Alerts Queue</Link>
+          </CrossLinkActions>
+        </div>
+      </aside>
+    );
+  }
+
+  if (selected.type === 'conflictZone') {
+    const zone = selected.item;
+    return (
+      <aside className="map-detail-panel">
+        <div className="map-detail-header">
+          <div>
+            <p className="kicker">Conflict Zone</p>
+            <h2>{zone.zoneId}</h2>
+            <p>{zone.zoneType.replace(/_/g, ' ')} zone with a {zone.riskLabel.toLowerCase()} risk profile and recommended action to {zone.recommendedAction.replace(/_/g, ' ')}.</p>
+          </div>
+          <button type="button" className="button button-secondary" onClick={clearMapSelection}>Clear</button>
+        </div>
+        <div className="map-detail-body">
+          <div className="detail-grid">
+            <div className="detail-item"><span>Risk level</span><StatusBadge value={zone.riskLabel} tone={zone.riskLevel === 'red' || zone.riskLevel === 'orange' ? 'strong' : zone.riskLevel === 'yellow' ? 'muted' : 'default'} /></div>
+            <div className="detail-item"><span>Zone score</span><strong>{zone.score}</strong></div>
+            <div className="detail-item"><span>Confidence</span><strong>{Math.round((zone.confidence ?? 0) * 100)}%</strong></div>
+            <div className="detail-item"><span>Recommended action</span><strong>{zone.recommendedAction.replace(/_/g, ' ')}</strong></div>
+            <div className="detail-item"><span>Expires</span><strong>{formatDate(zone.activeUntil)}</strong></div>
+            <div className="detail-item"><span>Contributing events</span><strong>{zone.metadata?.eventIds?.length ?? 0}</strong></div>
+          </div>
+          <div className="detail-block">
+            <h3>Source summary</h3>
+            <p className="detail-copy">
+              {zone.metadata?.categories?.length
+                ? `Built from ${zone.metadata.categories.join(', ')} signals.`
+                : 'Conflict zone source categories unavailable.'}
+            </p>
+          </div>
+          <CrossLinkActions>
+            <button type="button" className="button button-secondary" onClick={() => navigate('/live-map')}>Keep Reviewing Map</button>
             <Link className="button button-secondary" to="/alerts">Open Alerts Queue</Link>
           </CrossLinkActions>
         </div>

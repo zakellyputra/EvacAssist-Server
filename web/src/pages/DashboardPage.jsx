@@ -15,8 +15,12 @@ export default function DashboardPage() {
     dashboardRideGroups,
     dashboardStats,
     driverExceptionSummary,
-    operationsMap,
+    liveMapData,
+    liveMapSummaries,
     openAlert,
+    selectedMapItem,
+    selectedMapItemData,
+    selectMapItem,
     openRideGroup,
   } = useOperations();
 
@@ -35,7 +39,24 @@ export default function DashboardPage() {
       </section>
 
       <section className="dashboard-main-grid">
-        <MapPanel data={operationsMap} />
+        <div className="dashboard-primary-column">
+          <MapPanel
+            summaries={liveMapSummaries}
+            data={liveMapData}
+            selectedMapItem={selectedMapItemData ?? selectedMapItem}
+            onSelect={selectMapItem}
+            onOpenRideGroup={openRideGroup}
+            onOpenAlert={openAlert}
+          />
+
+          <Panel
+            title="Active Ride Groups"
+            subtitle="Current ride groupings being monitored by the coordination desk, with pickup location, assigned driver, group status, and zone context."
+            actions={<Link className="button button-secondary" to="/ride-groups">View all ride groups</Link>}
+          >
+            <RideGroupsTable groups={dashboardRideGroups} onSelectGroup={openRideGroup} />
+          </Panel>
+        </div>
 
         <div className="dashboard-side-column">
           <AlertsList
@@ -47,14 +68,6 @@ export default function DashboardPage() {
           <ActivityFeed items={activity} />
         </div>
       </section>
-
-      <Panel
-        title="Active Ride Groups"
-        subtitle="Current ride groupings being monitored by the coordination desk, with pickup location, assigned driver, group status, and zone context."
-        actions={<Link className="button button-secondary" to="/ride-groups">View all ride groups</Link>}
-      >
-        <RideGroupsTable groups={dashboardRideGroups} onSelectGroup={openRideGroup} />
-      </Panel>
     </div>
   );
 }

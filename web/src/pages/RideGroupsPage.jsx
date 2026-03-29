@@ -23,6 +23,7 @@ export default function RideGroupsPage() {
   const [criticalConflictsOnly, setCriticalConflictsOnly] = useState(false);
   const [assignmentConflictsOnly, setAssignmentConflictsOnly] = useState(false);
   const [sortBy, setSortBy] = useState('Priority');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   const zones = useMemo(() => ['All', ...new Set(rideGroups.map((group) => group.zone))], [rideGroups]);
 
@@ -99,67 +100,86 @@ export default function RideGroupsPage() {
       <SummaryStrip items={rideGroupSummaries} />
 
       <FilterBar>
-        <SearchInput value={search} onChange={setSearch} placeholder="Search by Group ID or pickup point" />
-        <label className="inline-field">
-          <span>Status</span>
-          <select value={status} onChange={(event) => setStatus(event.target.value)}>
-            {['All', 'Open', 'Filling', 'Full', 'En Route', 'Completed', 'Flagged'].map((item) => (
-              <option key={item} value={item}>{item}</option>
-            ))}
-          </select>
-        </label>
-        <label className="inline-field">
-          <span>Zone</span>
-          <select value={zone} onChange={(event) => setZone(event.target.value)}>
-            {zones.map((item) => (
-              <option key={item} value={item}>{item}</option>
-            ))}
-          </select>
-        </label>
-        <label className="inline-checkbox">
-          <input type="checkbox" checked={flaggedOnly} onChange={(event) => setFlaggedOnly(event.target.checked)} />
-          <span>Flagged only</span>
-        </label>
-        <label className="inline-checkbox">
-          <input type="checkbox" checked={highPriorityOnly} onChange={(event) => setHighPriorityOnly(event.target.checked)} />
-          <span>High priority only</span>
-        </label>
-        <label className="inline-checkbox">
-          <input type="checkbox" checked={blockedOnly} onChange={(event) => setBlockedOnly(event.target.checked)} />
-          <span>Blocked only</span>
-        </label>
-        <label className="inline-checkbox">
-          <input type="checkbox" checked={noDriverOnly} onChange={(event) => setNoDriverOnly(event.target.checked)} />
-          <span>No driver assigned</span>
-        </label>
-        <label className="inline-checkbox">
-          <input type="checkbox" checked={activeAlertsOnly} onChange={(event) => setActiveAlertsOnly(event.target.checked)} />
-          <span>Active alerts only</span>
-        </label>
-        <label className="inline-checkbox">
-          <input type="checkbox" checked={activeConflictsOnly} onChange={(event) => setActiveConflictsOnly(event.target.checked)} />
-          <span>Active conflicts only</span>
-        </label>
-        <label className="inline-checkbox">
-          <input type="checkbox" checked={blockingConflictsOnly} onChange={(event) => setBlockingConflictsOnly(event.target.checked)} />
-          <span>Blocking conflicts only</span>
-        </label>
-        <label className="inline-checkbox">
-          <input type="checkbox" checked={criticalConflictsOnly} onChange={(event) => setCriticalConflictsOnly(event.target.checked)} />
-          <span>Critical conflicts only</span>
-        </label>
-        <label className="inline-checkbox">
-          <input type="checkbox" checked={assignmentConflictsOnly} onChange={(event) => setAssignmentConflictsOnly(event.target.checked)} />
-          <span>Assignment conflicts only</span>
-        </label>
-        <label className="inline-field">
-          <span>Sort</span>
-          <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
-            {['Newest', 'Priority', 'Conflicts', 'Capacity', 'Urgency'].map((item) => (
-              <option key={item} value={item}>{item}</option>
-            ))}
-          </select>
-        </label>
+        <div className="ride-groups-filter-bar">
+          <div className="ride-groups-filter-top">
+            <SearchInput value={search} onChange={setSearch} placeholder="Search by Group ID or pickup point" />
+            <label className="inline-field">
+              <span>Status</span>
+              <select value={status} onChange={(event) => setStatus(event.target.value)}>
+                {['All', 'Open', 'Filling', 'Full', 'En Route', 'Completed', 'Flagged'].map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+            <label className="inline-field">
+              <span>Zone</span>
+              <select value={zone} onChange={(event) => setZone(event.target.value)}>
+                {zones.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+            <label className="inline-field">
+              <span>Sort</span>
+              <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+                {['Newest', 'Priority', 'Conflicts', 'Capacity', 'Urgency'].map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="ride-groups-filter-row">
+            <label className="inline-checkbox compact-checkbox">
+              <input type="checkbox" checked={highPriorityOnly} onChange={(event) => setHighPriorityOnly(event.target.checked)} />
+              <span>High priority</span>
+            </label>
+            <label className="inline-checkbox compact-checkbox">
+              <input type="checkbox" checked={blockedOnly} onChange={(event) => setBlockedOnly(event.target.checked)} />
+              <span>Blocked</span>
+            </label>
+            <label className="inline-checkbox compact-checkbox">
+              <input type="checkbox" checked={noDriverOnly} onChange={(event) => setNoDriverOnly(event.target.checked)} />
+              <span>No driver</span>
+            </label>
+            <label className="inline-checkbox compact-checkbox">
+              <input type="checkbox" checked={activeConflictsOnly} onChange={(event) => setActiveConflictsOnly(event.target.checked)} />
+              <span>Active conflicts</span>
+            </label>
+            <button
+              type="button"
+              className="button button-secondary button-inline"
+              onClick={() => setShowAdvancedFilters((current) => !current)}
+            >
+              {showAdvancedFilters ? 'Fewer filters' : 'More filters'}
+            </button>
+          </div>
+
+          {showAdvancedFilters ? (
+            <div className="ride-groups-filter-row ride-groups-filter-row-secondary">
+              <label className="inline-checkbox compact-checkbox">
+                <input type="checkbox" checked={flaggedOnly} onChange={(event) => setFlaggedOnly(event.target.checked)} />
+                <span>Flagged</span>
+              </label>
+              <label className="inline-checkbox compact-checkbox">
+                <input type="checkbox" checked={activeAlertsOnly} onChange={(event) => setActiveAlertsOnly(event.target.checked)} />
+                <span>Active alerts</span>
+              </label>
+              <label className="inline-checkbox compact-checkbox">
+                <input type="checkbox" checked={blockingConflictsOnly} onChange={(event) => setBlockingConflictsOnly(event.target.checked)} />
+                <span>Blocking conflicts</span>
+              </label>
+              <label className="inline-checkbox compact-checkbox">
+                <input type="checkbox" checked={criticalConflictsOnly} onChange={(event) => setCriticalConflictsOnly(event.target.checked)} />
+                <span>Critical conflicts</span>
+              </label>
+              <label className="inline-checkbox compact-checkbox">
+                <input type="checkbox" checked={assignmentConflictsOnly} onChange={(event) => setAssignmentConflictsOnly(event.target.checked)} />
+                <span>Assignment conflicts</span>
+              </label>
+            </div>
+          ) : null}
+        </div>
       </FilterBar>
 
       <Panel

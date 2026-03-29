@@ -24,9 +24,11 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
   const drivers = Array.isArray(data?.drivers) ? data.drivers : [];
   const pickupPoints = Array.isArray(data?.pickupPoints) ? data.pickupPoints : [];
   const zones = Array.isArray(data?.zones) ? data.zones : [];
+  const conflictZones = Array.isArray(data?.conflictZones) ? data.conflictZones : [];
   const alertAreas = Array.isArray(data?.alertAreas) ? data.alertAreas : [];
 
   const zoneCollection = useMemo(() => buildFeatureCollection(zones), [zones]);
+  const conflictZoneCollection = useMemo(() => buildFeatureCollection(conflictZones), [conflictZones]);
   const alertCollection = useMemo(() => buildFeatureCollection(alertAreas), [alertAreas]);
 
   useEffect(() => {
@@ -127,10 +129,53 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
         });
       }
 
+      if (map.getSource('ops-conflict-zones')) {
+        map.getSource('ops-conflict-zones').setData(conflictZoneCollection);
+      } else {
+        map.addSource('ops-conflict-zones', { type: 'geojson', data: conflictZoneCollection });
+        map.addLayer({
+          id: 'ops-conflict-zones-fill',
+          type: 'fill',
+          source: 'ops-conflict-zones',
+          paint: {
+            'fill-color': [
+              'match',
+              ['get', 'riskLevel'],
+              'red', '#9f1d1d',
+              'orange', '#cc6d1f',
+              'yellow', '#b38a1d',
+              '#72726c',
+            ],
+            'fill-opacity': 0.16,
+          },
+        });
+        map.addLayer({
+          id: 'ops-conflict-zones-line',
+          type: 'line',
+          source: 'ops-conflict-zones',
+          paint: {
+            'line-color': [
+              'match',
+              ['get', 'riskLevel'],
+              'red', '#7e1717',
+              'orange', '#9e5316',
+              'yellow', '#8b6a12',
+              '#555550',
+            ],
+            'line-width': 2,
+          },
+        });
+      }
+
       const handleZoneClick = (event) => {
         const feature = event.features?.[0];
         const id = feature?.properties?.id;
         if (id) onSelect('zone', id);
+      };
+      const handleConflictZoneClick = (event) => {
+        const feature = event.features?.[0];
+        const id = feature?.properties?.id;
+        if (id) onSelect('conflictZone', id);
       };
       const handleAlertClick = (event) => {
         const feature = event.features?.[0];
@@ -139,6 +184,7 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       };
 
       map.on('click', 'ops-zones-fill', handleZoneClick);
+      map.on('click', 'ops-conflict-zones-fill', handleConflictZoneClick);
       map.on('click', 'ops-alert-areas-line', handleAlertClick);
 
       cleanup = () => {
@@ -147,6 +193,9 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
 
         try {
           if (map.getLayer('ops-zones-fill')) map.off('click', 'ops-zones-fill', handleZoneClick);
+        } catch {}
+        try {
+          if (map.getLayer('ops-conflict-zones-fill')) map.off('click', 'ops-conflict-zones-fill', handleConflictZoneClick);
         } catch {}
 
         try {
@@ -162,7 +211,7 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       isDisposed = true;
       cleanup();
     };
-  }, [alertCollection, onSelect, zoneCollection]);
+  }, [alertCollection, conflictZoneCollection, onSelect, zoneCollection]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -219,6 +268,9 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
     if (selectedMapItem.type === 'pickup') {
       coordinates = pickupPoints.find((item) => item.id === selectedMapItem.id)?.coordinates ?? null;
     }
+    if (selectedMapItem.type === 'conflictZone') {
+      coordinates = conflictZones.find((item) => item.id === selectedMapItem.id)?.centroid?.coordinates ?? null;
+    }
 
     if (!coordinates) return;
 
@@ -228,7 +280,7 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       essential: true,
       duration: 700,
     });
-  }, [drivers, pickupPoints, rideGroups, selectedMapItem]);
+  }, [conflictZones, drivers, pickupPoints, rideGroups, selectedMapItem]);
 
   return <div ref={containerRef} className="live-map-canvas" />;
 }
