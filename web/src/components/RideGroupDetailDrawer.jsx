@@ -33,10 +33,10 @@ export default function RideGroupDetailDrawer({ rideGroup, onClose }) {
     );
   }
 
-  const { alertsWithRelations, requestRideGroupAction, openAlert } = useOperations();
+  const { alerts, requestRideGroupAction, openAlert } = useOperations();
   const linkedAlertIds = Array.isArray(rideGroup.linkedAlertIds) ? rideGroup.linkedAlertIds : [];
   const riders = Array.isArray(rideGroup.riders) ? rideGroup.riders : [];
-  const linkedAlerts = alertsWithRelations.filter((alert) => linkedAlertIds.includes(alert.id));
+  const linkedAlerts = (Array.isArray(alerts) ? alerts : []).filter((alert) => linkedAlertIds.includes(alert.id));
 
   return (
     <aside className="detail-drawer" aria-label={`Ride group ${rideGroup.id} details`}>
