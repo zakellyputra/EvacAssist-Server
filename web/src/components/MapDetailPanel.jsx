@@ -1,0 +1,396 @@
+import { Link, useNavigate } from 'react-router-dom';
+import ActionStateBadge from './ActionStateBadge';
+import CrossLinkActions from './CrossLinkActions';
+import DepartureReadinessPanel from './DepartureReadinessPanel';
+import DriverContextCard from './DriverContextCard';
+import LinkedAlertsPanel from './LinkedAlertsPanel';
+import PriorityScoreBadge from './PriorityScoreBadge';
+import RelatedEntitiesBlock from './RelatedEntitiesBlock';
+import RideGroupOperationalNotes from './RideGroupOperationalNotes';
+import { useOperations } from '../operations';
+import StatusBadge from './StatusBadge';
+import { formatConflictCount, getConflictSeverityTone } from '../utils/conflictDisplay';
+
+function formatDate(value) {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(value));
+}
+
+export default function MapDetailPanel({ selected }) {
+  const navigate = useNavigate();
+  const {
+    alerts,
+    clearMapSelection,
+    focusMapOnRideGroup,
+    openMapAlertDetails,
+    openMapRideGroupDetails,
+    requestRideGroupAction,
+  } = useOperations();
+
+  if (!selected) {
+    return (
+      <aside className="map-detail-panel">
+        <div className="map-detail-empty">
+          <strong>No map item selected</strong>
+          <p>Select a ride group, driver, pickup point, restricted zone, conflict zone, or alert area on the map to inspect it.</p>
+        </div>
+      </aside>
+    );
+  }
+
+  if (!selected.item) {
+    return (
+      <aside className="map-detail-panel">
+        <div className="map-detail-empty">
+          <strong>Selected item unavailable</strong>
+          <p>The selected map entity no longer matches the current workspace state. Clear the selection and continue monitoring.</p>
+        </div>
+      </aside>
+    );
+  }
+
+  if (selected.type === 'rideGroup') {
+    const rideGroup = selected.item.rideGroup;
+    if (!rideGroup) {
+      return (
+        <aside className="map-detail-panel">
+          <div className="map-detail-empty">
+            <strong>Ride group unavailable</strong>
+            <p>This map marker no longer has an active ride group record attached.</p>
+          </div>
+        </aside>
+      );
+    }
+    const linkedAlerts = (Array.isArray(alerts) ? alerts : []).filter((alert) => (rideGroup.linkedAlertIds ?? []).includes(alert.id));
+    return (
+      <aside className="map-detail-panel">
+        <div className="map-detail-header">
+          <div>
+            <p className="kicker">Ride Group</p>
+            <h2>{rideGroup.id}</h2>
+            <p>{rideGroup.summary}</p>
+          </div>
+          <button type="button" className="button button-secondary" onClick={clearMapSelection}>Clear</button>
+        </div>
+        <div className="map-detail-body">
+          <div className="detail-grid">
+            <div className="detail-item"><span>Pickup point</span><strong>{rideGroup.pickupPoint}</strong></div>
+            <div className="detail-item"><span>Zone</span><strong>{rideGroup.zone}</strong></div>
+            <div className="detail-item"><span>Priority score</span><PriorityScoreBadge score={rideGroup.priorityScore} /></div>
+            <div className="detail-item"><span>Readiness state</span><ActionStateBadge value={rideGroup.readinessState ?? 'PENDING'} /></div>
+            <div className="detail-item"><span>Conflicts</span><strong>{formatConflictCount(rideGroup.activeConflictCount)}</strong></div>
+            <div className="detail-item"><span>Conflict state</span><strong>{rideGroup.hasBlockingConflicts ? 'Blocking conflicts present' : rideGroup.hasActiveConflicts ? 'Non-blocking conflicts present' : 'No active conflicts'}</strong></div>
+            <div className="detail-item"><span>Riders / capacity</span><strong>{rideGroup.ridersJoined} / {rideGroup.capacity}</strong></div>
+            <div className="detail-item"><span>Driver</span><strong>{rideGroup.driverAssignment?.name ?? 'No driver assigned'}</strong></div>
+            <div className="detail-item"><span>Status</span><StatusBadge value={rideGroup.status} tone={rideGroup.status === 'Flagged' ? 'strong' : rideGroup.status === 'Open' || rideGroup.status === 'Filling' ? 'muted' : 'default'} /></div>
+            <div className="detail-item"><span>Linked alerts</span><strong>{rideGroup.linkedAlertIds.length}</strong></div>
+          </div>
+          <div className="detail-block">
+            <h3>Conflict Summary</h3>
+            {rideGroup.conflictDataStatus === 'loading' || rideGroup.conflictDataStatus === 'idle' ? <p className="empty-copy">Loading conflict data...</p> : null}
+            {rideGroup.conflictDataStatus === 'error' && !rideGroup.hasActiveConflicts ? <p className="empty-copy">Conflict details unavailable</p> : null}
+            {rideGroup.hasActiveConflicts ? (
+              <div className="linked-list">
+                {rideGroup.conflicts.slice(0, 2).map((conflict) => (
+                  <article key={conflict.id} className="linked-entity">
+                    <div>
+                      <strong>{conflict.label}</strong>
+                      <span>{conflict.message ?? 'Conflict details unavailable'}</span>
+                    </div>
+                    <div className="linked-entity-meta">
+                      <StatusBadge
+                        value={conflict.severity.charAt(0).toUpperCase() + conflict.severity.slice(1)}
+                        tone={getConflictSeverityTone(conflict.severity)}
+                      />
+                      <StatusBadge value={conflict.blocking ? 'Blocking' : 'Non-blocking'} tone={conflict.blocking ? 'strong' : 'default'} />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+            {rideGroup.conflictDataStatus === 'ready' && !rideGroup.hasActiveConflicts ? <p className="empty-copy">No active conflicts</p> : null}
+          </div>
+          <DriverContextCard driverContext={rideGroup.driverContext} assignedRideGroupId={rideGroup.id} />
+          <DepartureReadinessPanel
+            detail={rideGroup.departureReadinessDetail}
+            riderCount={rideGroup.ridersJoined}
+            capacity={rideGroup.capacity}
+          />
+          <LinkedAlertsPanel alerts={linkedAlerts} onOpenAlert={openMapAlertDetails} />
+          <RideGroupOperationalNotes routeNotes={rideGroup.routeNotes} pickupIssues={rideGroup.pickupIssues} />
+          <CrossLinkActions>
+            <button type="button" className="button button-secondary" onClick={() => openMapRideGroupDetails(rideGroup.id)}>Open Full Ride Group Details</button>
+            <button type="button" className="button button-secondary" onClick={() => requestRideGroupAction('Mark Flagged', rideGroup.id)}>Mark Flagged</button>
+            <button type="button" className="button button-secondary" onClick={() => requestRideGroupAction('Close Joining', rideGroup.id)}>Close Joining</button>
+            <Link className="button button-secondary" to="/ride-groups">Go to Ride Groups</Link>
+          </CrossLinkActions>
+        </div>
+      </aside>
+    );
+  }
+
+  if (selected.type === 'driver') {
+    const driver = selected.item;
+    return (
+      <aside className="map-detail-panel">
+        <div className="map-detail-header">
+          <div>
+            <p className="kicker">Driver Unit</p>
+            <h2>{driver.unitId}</h2>
+            <p>{driver.unitId} is currently {driver.status.toLowerCase()} in {driver.zone} with {driver.assignedRideGroupId} assigned.</p>
+          </div>
+          <button type="button" className="button button-secondary" onClick={clearMapSelection}>Clear</button>
+        </div>
+        <div className="map-detail-body">
+          <div className="detail-grid">
+            <div className="detail-item"><span>Assigned ride group</span><strong>{driver.assignedRideGroupId}</strong></div>
+            <div className="detail-item"><span>Current status</span><strong>{driver.status}</strong></div>
+            <div className="detail-item"><span>Zone</span><strong>{driver.zone}</strong></div>
+            <div className="detail-item"><span>Recent update</span><strong>{formatDate(driver.lastUpdated)}</strong></div>
+          </div>
+          <DriverContextCard driverContext={driver.rideGroup?.driverContext ?? null} assignedRideGroupId={driver.assignedRideGroupId} />
+          <CrossLinkActions>
+            <button type="button" className="button button-secondary" onClick={() => openMapRideGroupDetails(driver.assignedRideGroupId)}>Open Assigned Ride Group</button>
+            {driver.rideGroup?.linkedAlertIds?.[0] ? (
+              <button type="button" className="button button-secondary" onClick={() => openMapAlertDetails(driver.rideGroup.linkedAlertIds[0])}>Open Related Alert</button>
+            ) : null}
+            <button type="button" className="button button-secondary" onClick={() => focusMapOnRideGroup(driver.assignedRideGroupId)}>
+              Center on Assignment Area
+            </button>
+            <Link className="button button-secondary" to="/ride-groups">Review Ride Group Board</Link>
+          </CrossLinkActions>
+        </div>
+      </aside>
+    );
+  }
+
+  if (selected.type === 'pickup') {
+    const pickup = selected.item;
+    const pickupGroups = Array.isArray(pickup.rideGroups) ? pickup.rideGroups : [];
+    return (
+      <aside className="map-detail-panel">
+        <div className="map-detail-header">
+          <div>
+            <p className="kicker">Pickup Point</p>
+            <h2>{pickup.name}</h2>
+            <p>{pickup.name} is serving {pickup.rideGroups.length} active group{pickup.rideGroups.length === 1 ? '' : 's'} inside {pickup.zone}.</p>
+          </div>
+          <button type="button" className="button button-secondary" onClick={clearMapSelection}>Clear</button>
+        </div>
+        <div className="map-detail-body">
+          <div className="detail-grid">
+            <div className="detail-item"><span>Zone</span><strong>{pickup.zone}</strong></div>
+            <div className="detail-item"><span>Active groups nearby</span><strong>{pickupGroups.map((group) => group.id).join(', ') || 'None'}</strong></div>
+          </div>
+          <div className="detail-block">
+            <h3>Current demand note</h3>
+            <p className="detail-copy">{pickup.demandNote}</p>
+          </div>
+          <CrossLinkActions>
+            {pickupGroups[0] ? (
+              <button type="button" className="button button-secondary" onClick={() => openMapRideGroupDetails(pickupGroups[0].id)}>
+                Open Primary Nearby Ride Group
+              </button>
+            ) : null}
+            <Link className="button button-secondary" to="/ride-groups">Open Ride Groups</Link>
+          </CrossLinkActions>
+        </div>
+      </aside>
+    );
+  }
+
+  if (selected.type === 'zone') {
+    const zone = selected.item;
+    const zoneGroups = Array.isArray(zone.rideGroups) ? zone.rideGroups : [];
+    const zoneAlerts = Array.isArray(zone.alerts) ? zone.alerts : [];
+    return (
+      <aside className="map-detail-panel">
+        <div className="map-detail-header">
+          <div>
+            <p className="kicker">Restricted Zone</p>
+            <h2>{zone.name}</h2>
+            <p>{zone.restrictionType} is affecting {zone.rideGroups.length} nearby group{zone.rideGroups.length === 1 ? '' : 's'} in {zone.zone}.</p>
+          </div>
+          <button type="button" className="button button-secondary" onClick={clearMapSelection}>Clear</button>
+        </div>
+        <div className="map-detail-body">
+          <div className="detail-grid">
+            <div className="detail-item"><span>Restriction type</span><strong>{zone.restrictionType}</strong></div>
+            <div className="detail-item"><span>Affected groups</span><strong>{zoneGroups.map((group) => group.id).join(', ') || 'None'}</strong></div>
+            <div className="detail-item detail-item-wide"><span>Nearby drivers</span><strong>{zoneGroups.map((group) => group.driverUnitId).filter(Boolean).join(', ') || 'No assigned units'}</strong></div>
+          </div>
+          <div className="detail-block">
+            <h3>Suggested caution note</h3>
+            <p className="detail-copy">{zone.cautionNote}</p>
+          </div>
+          <LinkedAlertsPanel alerts={zoneAlerts} onOpenAlert={openMapAlertDetails} />
+          <CrossLinkActions>
+            <Link className="button button-secondary" to="/alerts">Open Alerts Queue</Link>
+          </CrossLinkActions>
+        </div>
+      </aside>
+    );
+  }
+
+  if (selected.type === 'conflictZone') {
+    const zone = selected.item;
+    return (
+      <aside className="map-detail-panel">
+        <div className="map-detail-header">
+          <div>
+            <p className="kicker">Conflict Zone</p>
+            <h2>{zone.zoneId}</h2>
+            <p>{zone.zoneType.replace(/_/g, ' ')} zone with a {zone.riskLabel.toLowerCase()} risk profile and recommended action to {zone.recommendedAction.replace(/_/g, ' ')}.</p>
+          </div>
+          <button type="button" className="button button-secondary" onClick={clearMapSelection}>Clear</button>
+        </div>
+        <div className="map-detail-body">
+          <div className="detail-grid">
+            <div className="detail-item"><span>Risk level</span><StatusBadge value={zone.riskLabel} tone={zone.riskLevel === 'red' || zone.riskLevel === 'orange' ? 'strong' : zone.riskLevel === 'yellow' ? 'muted' : 'default'} /></div>
+            <div className="detail-item"><span>Zone score</span><strong>{zone.score}</strong></div>
+            <div className="detail-item"><span>Confidence</span><strong>{Math.round((zone.confidence ?? 0) * 100)}%</strong></div>
+            <div className="detail-item"><span>Recommended action</span><strong>{zone.recommendedAction.replace(/_/g, ' ')}</strong></div>
+            <div className="detail-item"><span>Expires</span><strong>{formatDate(zone.activeUntil)}</strong></div>
+            <div className="detail-item"><span>Contributing events</span><strong>{zone.metadata?.eventIds?.length ?? 0}</strong></div>
+          </div>
+          <div className="detail-block">
+            <h3>Source summary</h3>
+            <p className="detail-copy">
+              {zone.metadata?.categories?.length
+                ? `Built from ${zone.metadata.categories.join(', ')} signals.`
+                : 'Conflict zone source categories unavailable.'}
+            </p>
+          </div>
+          <CrossLinkActions>
+            <button type="button" className="button button-secondary" onClick={() => navigate('/live-map')}>Keep Reviewing Map</button>
+            <Link className="button button-secondary" to="/alerts">Open Alerts Queue</Link>
+          </CrossLinkActions>
+        </div>
+      </aside>
+    );
+  }
+
+  if (selected.type === 'conflictCountry') {
+    const country = selected.item;
+    return (
+      <aside className="map-detail-panel">
+        <div className="map-detail-header">
+          <div>
+            <p className="kicker">Conflict Country</p>
+            <h2>{country.country}</h2>
+            <p>{country.zoneCount} mapped conflict zone{country.zoneCount === 1 ? '' : 's'} are currently active in this country view. Select a country marker to zoom directly into that operating picture.</p>
+          </div>
+          <button type="button" className="button button-secondary" onClick={clearMapSelection}>Clear</button>
+        </div>
+        <div className="map-detail-body">
+          <div className="detail-grid">
+            <div className="detail-item"><span>Country</span><strong>{country.country}</strong></div>
+            <div className="detail-item"><span>Zone count</span><strong>{country.zoneCount}</strong></div>
+            <div className="detail-item"><span>Highest risk</span><StatusBadge value={String(country.highestRiskLevel ?? 'unknown').replace(/^./, (char) => char.toUpperCase())} tone={country.highestRiskLevel === 'red' || country.highestRiskLevel === 'orange' ? 'strong' : country.highestRiskLevel === 'yellow' ? 'muted' : 'default'} /></div>
+            <div className="detail-item"><span>Highest score</span><strong>{country.highestScore}</strong></div>
+          </div>
+          <div className="detail-block">
+            <h3>Country Zone Breakdown</h3>
+            <div className="linked-list">
+              {country.zones.map((zone) => (
+                <article key={zone.zoneId} className="linked-entity">
+                  <div>
+                    <strong>{zone.zoneType.replace(/_/g, ' ')}</strong>
+                    <span>{zone.metadata?.locationNames?.[0] ?? zone.zoneId}</span>
+                  </div>
+                  <div className="linked-entity-meta">
+                    <StatusBadge value={zone.riskLabel} tone={zone.riskLevel === 'red' || zone.riskLevel === 'orange' ? 'strong' : zone.riskLevel === 'yellow' ? 'muted' : 'default'} />
+                    <strong>{zone.score}</strong>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      </aside>
+    );
+  }
+
+  if (selected.type === 'alertArea') {
+    const alertArea = selected.item;
+    const alert = alertArea.alert;
+    if (!alert) {
+      return (
+        <aside className="map-detail-panel">
+          <div className="map-detail-empty">
+            <strong>Alert unavailable</strong>
+            <p>This alert area no longer has an active linked alert record.</p>
+          </div>
+        </aside>
+      );
+    }
+    return (
+      <aside className="map-detail-panel">
+        <div className="map-detail-header">
+          <div>
+            <p className="kicker">Active Alert Area</p>
+            <h2>{alert.title}</h2>
+            <p>{alert.description}</p>
+          </div>
+          <button type="button" className="button button-secondary" onClick={clearMapSelection}>Clear</button>
+        </div>
+        <div className="map-detail-body">
+          <div className="detail-grid">
+            <div className="detail-item"><span>Affected zone</span><strong>{alert.relatedZone}</strong></div>
+            <div className="detail-item"><span>Related ride group</span><strong>{alert.relatedGroupId ?? 'None'}</strong></div>
+            <div className="detail-item"><span>Severity</span><StatusBadge value={alert.severity} tone={alert.severityTone} /></div>
+            <div className="detail-item"><span>Ride priority</span>{alert.relatedRideGroup ? <PriorityScoreBadge score={alert.relatedRideGroup.priorityScore} /> : <strong>No linked ride group</strong>}</div>
+            <div className="detail-item"><span>Ride conflicts</span><strong>{alert.relatedRideGroup ? formatConflictCount(alert.relatedRideGroup.activeConflictCount) : 'No linked ride group'}</strong></div>
+            <div className="detail-item"><span>State</span><ActionStateBadge value={alert.status} /></div>
+            <div className="detail-item"><span>Ride readiness</span><ActionStateBadge value={alert.relatedRideGroup?.readinessState ?? 'PENDING'} /></div>
+          </div>
+          {alert.relatedRideGroup ? (
+            <div className="detail-block">
+              <h3>Ride Conflict Summary</h3>
+              <p className="detail-copy">
+                {alert.relatedRideGroup.hasBlockingConflicts
+                  ? 'Blocking conflicts are attached to the linked ride group.'
+                  : alert.relatedRideGroup.hasActiveConflicts
+                    ? 'Non-blocking conflicts are attached to the linked ride group.'
+                    : 'No active conflicts are attached to the linked ride group.'}
+              </p>
+              {alert.relatedRideGroup.highestConflictSeverity ? (
+                <div className="linked-entity-meta">
+                  <StatusBadge
+                    value={alert.relatedRideGroup.highestConflictSeverity.charAt(0).toUpperCase() + alert.relatedRideGroup.highestConflictSeverity.slice(1)}
+                    tone={getConflictSeverityTone(alert.relatedRideGroup.highestConflictSeverity)}
+                  />
+                  {alert.relatedRideGroup.hasBlockingConflicts ? <StatusBadge value="Blocking conflict" tone="strong" /> : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          <RelatedEntitiesBlock
+            rideGroupId={alert.relatedGroupId}
+            zone={alert.relatedZone}
+            assignedDriver={alert.assignedDriver}
+            pickupPoint={alert.pickupPoint}
+          />
+          <DriverContextCard driverContext={alert.driverContext} assignedRideGroupId={alert.relatedGroupId} />
+          <div className="detail-block">
+            <h3>Recommended action</h3>
+            <p className="detail-copy">{alert.suggestedAction}</p>
+          </div>
+          <CrossLinkActions>
+            <button type="button" className="button button-secondary" onClick={() => openMapAlertDetails(alert.id)}>Open Related Alert</button>
+            {alert.relatedGroupId ? (
+              <button type="button" className="button button-secondary" onClick={() => openMapRideGroupDetails(alert.relatedGroupId)}>Open Related Ride Group</button>
+            ) : null}
+            <button type="button" className="button button-secondary" onClick={() => navigate('/alerts')}>Go to Alerts</button>
+          </CrossLinkActions>
+        </div>
+      </aside>
+    );
+  }
+
+  return null;
+}

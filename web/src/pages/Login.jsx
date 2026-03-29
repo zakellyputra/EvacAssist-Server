@@ -28,7 +28,6 @@ export default function Login() {
       <form className="login-card" onSubmit={handleSubmit}>
         <h1>EvacAssist</h1>
         <p>Coordinator dashboard login</p>
-        <a href="/request" className="request-link">Need evacuation help?</a>
         {error && <div className="error">{error}</div>}
         <input
           type="tel"

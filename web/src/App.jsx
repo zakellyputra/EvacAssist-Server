@@ -1,34 +1,54 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes } from 'react-router-dom';
+import AppShell from './components/AppShell';
 import { useAuth } from './auth';
-import Layout from './components/Layout';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import Incidents from './pages/Incidents';
-import Zones from './pages/Zones';
-import RequestEvacuation from './pages/RequestEvacuation';
+import AlertsPage from './pages/AlertsPage';
+import DashboardPage from './pages/DashboardPage';
+import LiveMapPage from './pages/LiveMapPage';
+import LoginPage from './pages/LoginPage';
+import PlaceholderPage from './pages/PlaceholderPage';
+import RideGroupsPage from './pages/RideGroupsPage';
 
-function PrivateRoute({ children }) {
-  const { token } = useAuth();
-  return token ? children : <Navigate to="/login" replace />;
+function ProtectedRoute({ children }) {
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? children : <Navigate to="/login" replace />;
+}
+
+function GuestRoute({ children }) {
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? <Navigate to="/dashboard" replace /> : children;
 }
 
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/request" element={<RequestEvacuation />} />
+      <Route path="/" element={<Navigate to="/login" replace />} />
       <Route
-        element={
-          <PrivateRoute>
-            <Layout />
-          </PrivateRoute>
-        }
+        path="/login"
+        element={(
+          <GuestRoute>
+            <LoginPage />
+          </GuestRoute>
+        )}
+      />
+      <Route
+        element={(
+          <ProtectedRoute>
+            <AppShell>
+              <Outlet />
+            </AppShell>
+          </ProtectedRoute>
+        )}
       >
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/incidents/submit" element={<Incidents />} />
-        <Route path="/zones" element={<Zones />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/ride-groups" element={<RideGroupsPage />} />
+        <Route path="/alerts" element={<AlertsPage />} />
+        <Route path="/live-map" element={<LiveMapPage />} />
+        <Route
+          path="/settings"
+          element={<PlaceholderPage title="Settings" description="Console settings, alert rules, and workflow defaults will be managed from this area in a later phase." />}
+        />
       </Route>
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );
 }

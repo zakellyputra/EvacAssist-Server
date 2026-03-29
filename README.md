@@ -1,5 +1,92 @@
 # EvacAssist
 
+## Quick Start
+
+This repo currently runs as:
+- `api/` = Node.js + Express backend
+- `web/` = React + Vite admin dashboard
+
+### 1. Create environment files
+
+Backend env goes in `api/.env`:
+
+```env
+Use the one aahan sent over
+```
+
+Frontend env goes in `web/.env`:
+
+```env
+VITE_API_URL=http://localhost:3000
+```
+
+### 2. Install dependencies
+
+Backend:
+
+```bash
+cd api
+npm install
+```
+
+Frontend:
+
+```bash
+cd web
+npm install
+```
+
+### 3. Start the backend
+
+```bash
+cd api
+npm run dev
+```
+
+The API should start on `http://localhost:3000`.
+
+### 4. Start the frontend
+
+Open a second terminal:
+
+```bash
+cd web
+npm run dev
+```
+
+Vite will print a local URL, usually `http://localhost:5173`.
+
+### 5. Create a test login
+
+There are no built-in default credentials.
+
+Create an admin user with:
+
+```bash
+curl -X POST http://localhost:3000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Admin User",
+    "phone": "5551234567",
+    "role": "admin"
+  }'
+```
+
+Then sign in through the web UI using:
+- Email field: `5551234567`
+- Password field: any non-empty value
+
+Important:
+- the current backend login still authenticates with the existing phone-based flow
+- the web login screen is restyled, but it does not introduce a new auth contract
+
+### 6. Troubleshooting
+
+- If the backend fails on startup, check `api/.env` first.
+- If the frontend loads but cannot fetch data, confirm `VITE_API_URL=http://localhost:3000`.
+- If login fails, make sure the user was created successfully in MongoDB.
+- If incident AI features fail, confirm `ANTHROPIC_API_KEY` is set.
+
 **Emergency Evacuation Coordination Platform** — a stacked routing brain that turns live hazard intelligence into the safest path out.
 
 ## The Core Idea

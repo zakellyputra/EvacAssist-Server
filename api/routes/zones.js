@@ -4,6 +4,10 @@ import RiskZone from '../models/RiskZone.js';
 
 const router = Router();
 
+router.get('/public', async (_req, res) => {
+  res.json(await RiskZone.find().sort({ updated_at: -1 }));
+});
+
 // GET /api/zones (JWT)
 router.get('/', requireAuth, async (_req, res) => {
   res.json(await RiskZone.find());
