@@ -9,7 +9,7 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { TextInput, Button } from 'react-native-paper';
+import { TextInput, Button, TouchableRipple } from 'react-native-paper';
 import { router } from 'expo-router';
 import { loginDriver, ensureSession } from '../services/auth';
 
@@ -30,7 +30,7 @@ export default function LoginScreen() {
     setDriverLoading(true);
     try {
       await loginDriver(phone.trim(), password);
-      router.replace('/home');
+      router.replace('/driver');
     } catch (e: any) {
       setError(e.message ?? 'Login failed. Check your credentials.');
     } finally {
@@ -126,6 +126,12 @@ export default function LoginScreen() {
             >
               {driverLoading ? 'Signing in…' : 'Login as Driver'}
             </Button>
+
+            <TouchableRipple onPress={() => router.push('/signup')} style={styles.signupLink}>
+              <Text style={styles.signupLinkText}>
+                New driver? <Text style={styles.signupLinkBold}>Sign up here</Text>
+              </Text>
+            </TouchableRipple>
           </View>
 
           {/* Divider */}
@@ -223,4 +229,8 @@ const styles = StyleSheet.create({
 
   btnContent: { paddingVertical: 6 },
   btnLabel: { fontSize: 15, fontWeight: '700', letterSpacing: 0.3 },
+
+  signupLink: { alignSelf: 'center', borderRadius: 4, paddingHorizontal: 4 },
+  signupLinkText: { color: '#78909C', fontSize: 13, textAlign: 'center' },
+  signupLinkBold: { color: '#90CAF9', fontWeight: '700' },
 });

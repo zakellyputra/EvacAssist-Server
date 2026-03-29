@@ -18,6 +18,37 @@ export interface CreatedTrip {
   qrToken: string;
 }
 
+export interface AvailableTrip {
+  _id: string;
+  pickup_loc: { coordinates: [number, number] };
+  passengers: number;
+  accessibility_needs?: string;
+  notes?: string;
+  status: string;
+}
+
+export async function getAvailableTrips(): Promise<AvailableTrip[]> {
+  const session = await ensureSession();
+  const response = await fetch(`${API_URL}/api/trips/available`, {
+    headers: { Authorization: `Bearer ${session.accessToken}` },
+  });
+  if (!response.ok) throw new Error(`Failed to fetch trips (${response.status})`);
+  const data = await response.json();
+  return data.trips ?? data ?? [];
+}
+
+export async function acceptTrip(tripId: string): Promise<void> {
+  const session = await ensureSession();
+  const response = await fetch(`${API_URL}/api/trips/${tripId}/accept`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${session.accessToken}` },
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Accept failed (${response.status}): ${body}`);
+  }
+}
+
 export async function requestEvacuation(payload: CreateTripPayload): Promise<CreatedTrip> {
   const sendCreateTrip = async (accessToken: string) => fetch(`${API_URL}/api/trips`, {
     method: 'POST',
