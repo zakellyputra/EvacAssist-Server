@@ -39,7 +39,7 @@ export default async function rerouteAroundZones({ origin, destination, directRo
   for (const zone of blockingZones) {
     const waypoints = buildDetourWaypoints(zone, origin, destination);
     for (const waypoint of waypoints) {
-      const geometry = buildRoute({ origin, destination, waypoints: [waypoint] });
+      const geometry = await buildRoute({ origin, destination, waypoints: [waypoint] });
       const risk = await checkRouteRisk(geometry);
       const scoring = scoreRoute(risk);
       const metrics = estimateRouteMetrics(geometry);
@@ -55,8 +55,10 @@ export default async function rerouteAroundZones({ origin, destination, directRo
   }
 
   const best = candidates.sort((a, b) => (
-    a.score - b.score
+    (a.conflictExposureKm ?? Number.MAX_SAFE_INTEGER) - (b.conflictExposureKm ?? Number.MAX_SAFE_INTEGER)
+    || a.score - b.score
     || Number(a.routeRisk === 'blocked') - Number(b.routeRisk === 'blocked')
+    || a.durationMin - b.durationMin
     || a.distanceKm - b.distanceKm
   ))[0];
 

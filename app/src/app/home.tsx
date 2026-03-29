@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import * as Location from 'expo-location';
 import NetInfo from '@react-native-community/netinfo';
 import EvacMap from '../components/EvacMap';
+import AppBackButton from '../components/AppBackButton';
 
 import { API_URL } from '../constants';
 console.log('API_URL:', API_URL);
@@ -33,6 +34,7 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar backgroundColor="#0D1B2A" barStyle="light-content" />
+      <AppBackButton floating fallbackHref="/" />
 
       {/* Header */}
       <View style={styles.header}>

@@ -18,6 +18,7 @@ function serializeRoutePlan(routePlan) {
     distanceKm: routePlan.distanceKm,
     durationMin: routePlan.durationMin,
     geometry: routePlan.geometry,
+    conflictExposureKm: routePlan.metadata?.conflictExposureKm ?? null,
     metadata: routePlan.metadata ?? {},
   };
 }
@@ -32,7 +33,7 @@ function getCoords(input, label) {
 router.post('/compute-route', requireAuth, async (req, res) => {
   try {
     const { origin, destination, tripId = null } = req.body ?? {};
-    const geometry = buildRoute({
+    const geometry = await buildRoute({
       origin: getCoords(origin, 'origin'),
       destination: getCoords(destination, 'destination'),
     });
@@ -54,6 +55,8 @@ router.post('/compute-route', requireAuth, async (req, res) => {
       metadata: {
         nearbyZones: risk.nearbyZones.map((zone) => zone.zoneId),
         explanation: scoring.explanation,
+        conflictExposureKm: risk.conflictExposureKm ?? 0,
+        weightedExposureKm: risk.weightedExposureKm ?? 0,
       },
     });
 
@@ -66,7 +69,7 @@ router.post('/compute-route', requireAuth, async (req, res) => {
 router.post('/check-route', requireAuth, async (req, res) => {
   try {
     const { route } = req.body ?? {};
-    const risk = await checkRouteRisk(route?.type ? route : buildRoute({
+    const risk = await checkRouteRisk(route?.type ? route : await buildRoute({
       origin: getCoords(route?.origin, 'route.origin'),
       destination: getCoords(route?.destination, 'route.destination'),
       waypoints: route?.waypoints ?? [],
@@ -79,6 +82,8 @@ router.post('/check-route', requireAuth, async (req, res) => {
       recommendedAction: scoring.recommendedAction,
       intersectingZones: risk.intersectingZones.map((zone) => zone.zoneId),
       nearbyZones: risk.nearbyZones.map((zone) => zone.zoneId),
+      conflictExposureKm: risk.conflictExposureKm ?? 0,
+      weightedExposureKm: risk.weightedExposureKm ?? 0,
       explanation: scoring.explanation,
     });
   } catch (error) {
@@ -89,7 +94,7 @@ router.post('/check-route', requireAuth, async (req, res) => {
 router.post('/reroute', requireAuth, async (req, res) => {
   try {
     const { origin, destination } = req.body ?? {};
-    const directGeometry = buildRoute({
+    const directGeometry = await buildRoute({
       origin: getCoords(origin, 'origin'),
       destination: getCoords(destination, 'destination'),
     });
@@ -105,6 +110,8 @@ router.post('/reroute', requireAuth, async (req, res) => {
         score: directScoring.score,
         recommendedAction: directScoring.recommendedAction,
         intersectingZones: directRisk.intersectingZones.map((zone) => zone.zoneId),
+        conflictExposureKm: directRisk.conflictExposureKm ?? 0,
+        weightedExposureKm: directRisk.weightedExposureKm ?? 0,
         distanceKm: directMetrics.distanceKm,
         durationMin: directMetrics.durationMin,
         geometry: directGeometry.geometry,
@@ -121,6 +128,8 @@ router.post('/reroute', requireAuth, async (req, res) => {
       recommendedAction: rerouted.recommendedAction,
       intersectingZones: rerouted.intersectingZones?.map((zone) => zone.zoneId) ?? [],
       nearbyZones: rerouted.nearbyZones?.map((zone) => zone.zoneId) ?? [],
+      conflictExposureKm: rerouted.conflictExposureKm ?? 0,
+      weightedExposureKm: rerouted.weightedExposureKm ?? 0,
       distanceKm: rerouted.distanceKm ?? directMetrics.distanceKm,
       durationMin: rerouted.durationMin ?? directMetrics.durationMin,
       geometry: rerouted.geometry?.geometry ?? directGeometry.geometry,

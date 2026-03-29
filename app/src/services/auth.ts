@@ -15,6 +15,7 @@ function randomDigits(length: number): string {
 async function registerEmergencyRider(): Promise<AuthSession> {
   const phone = `555${randomDigits(7)}`;
   const name = `Emergency Rider ${randomDigits(4)}`;
+  const password = `emergency-${randomDigits(8)}`;
 
   const response = await fetch(`${API_URL}/api/auth/register`, {
     method: 'POST',
@@ -22,6 +23,7 @@ async function registerEmergencyRider(): Promise<AuthSession> {
     body: JSON.stringify({
       name,
       phone,
+      password,
       role: 'rider',
     }),
   });

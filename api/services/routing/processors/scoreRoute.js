@@ -5,7 +5,13 @@ function riskWeight(riskLevel) {
   return 1;
 }
 
-export default function scoreRoute({ intersectingZones = [], nearbyZones = [], highestRiskLevel = 'green' }) {
+export default function scoreRoute({
+  intersectingZones = [],
+  nearbyZones = [],
+  highestRiskLevel = 'green',
+  conflictExposureKm = 0,
+  weightedExposureKm = 0,
+}) {
   const intersectsRed = intersectingZones.some((zone) => zone.riskLevel === 'red');
   const intersectsOrange = intersectingZones.some((zone) => zone.riskLevel === 'orange');
   const intersectsYellow = intersectingZones.some((zone) => zone.riskLevel === 'yellow');
@@ -14,7 +20,8 @@ export default function scoreRoute({ intersectingZones = [], nearbyZones = [], h
   const base = riskWeight(highestRiskLevel) * 18;
   const intersectionPenalty = intersectingZones.length * 12;
   const nearbyPenalty = nearbyZones.length * 5;
-  const score = Math.max(0, Math.min(100, Math.round(base + intersectionPenalty + nearbyPenalty)));
+  const exposurePenalty = Math.round((conflictExposureKm * 10) + (weightedExposureKm * 5));
+  const score = Math.max(0, Math.min(100, Math.round(base + intersectionPenalty + nearbyPenalty + exposurePenalty)));
 
   if (intersectsRed) {
     return {

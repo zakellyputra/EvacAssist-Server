@@ -12,6 +12,7 @@ import {
 import { TextInput, Button } from 'react-native-paper';
 import { router } from 'expo-router';
 import { loginDriver, ensureSession } from '../services/auth';
+import AppBackButton from '../components/AppBackButton';
 
 export default function LoginScreen() {
   const [phone, setPhone] = useState('');
@@ -55,6 +56,7 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar backgroundColor="#0D1B2A" barStyle="light-content" />
+      <AppBackButton floating fallbackHref="/" />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

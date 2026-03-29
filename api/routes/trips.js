@@ -76,15 +76,21 @@ router.post('/', requireAuth, async (req, res) => {
 // GET /api/trips/available — open requests near driver
 router.get('/available', requireAuth, async (req, res) => {
   const { lat, lng, radius_km = 10 } = req.query;
-  const trips = await Trip.find({
-    status: 'pending',
-    pickup_loc: {
+  const latNum = Number(lat);
+  const lngNum = Number(lng);
+  const radiusKmNum = Number(radius_km);
+
+  const query = { status: 'pending' };
+  if (Number.isFinite(latNum) && Number.isFinite(lngNum)) {
+    query.pickup_loc = {
       $near: {
-        $geometry: { type: 'Point', coordinates: [parseFloat(lng), parseFloat(lat)] },
-        $maxDistance: parseFloat(radius_km) * 1000,
+        $geometry: { type: 'Point', coordinates: [lngNum, latNum] },
+        $maxDistance: (Number.isFinite(radiusKmNum) ? radiusKmNum : 10) * 1000,
       },
-    },
-  }).limit(20);
+    };
+  }
+
+  const trips = await Trip.find(query).sort({ created_at: -1 }).limit(20);
   res.json(trips);
 });
 

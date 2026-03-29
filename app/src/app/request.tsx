@@ -6,6 +6,8 @@ import { router } from 'expo-router';
 import { useOfflineDatabase } from '../hooks/useOfflineDatabase';
 import NetInfo from '@react-native-community/netinfo';
 import { requestEvacuation } from '../services/trips';
+import AppBackButton from '../components/AppBackButton';
+import MapView, { Marker, UrlTile, PROVIDER_DEFAULT } from 'react-native-maps';
 
 export default function RequestScreen() {
   const { createTrip } = useOfflineDatabase();
@@ -16,12 +18,33 @@ export default function RequestScreen() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isOnline, setIsOnline] = useState(true);
+  const [pinMode, setPinMode] = useState<'pickup' | 'dropoff'>('pickup');
+  const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [dropoffCoords, setDropoffCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [dropoffDetails, setDropoffDetails] = useState('');
 
   React.useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
       setIsOnline(state.isConnected ?? false);
     });
     return unsubscribe;
+  }, []);
+
+  React.useEffect(() => {
+    (async () => {
+      const permission = await Location.getForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        const asked = await Location.requestForegroundPermissionsAsync();
+        if (asked.status !== 'granted') return;
+      }
+
+      const loc = await Location.getCurrentPositionAsync({});
+      setPickupCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      setDropoffCoords((current) => current ?? {
+        lat: loc.coords.latitude + 0.01,
+        lng: loc.coords.longitude + 0.01,
+      });
+    })();
   }, []);
 
   async function submitRequest() {
@@ -34,40 +57,45 @@ export default function RequestScreen() {
       const onlineNow = netState.isConnected ?? false;
       setIsOnline(onlineNow);
 
-      const permission = await Location.getForegroundPermissionsAsync();
-      if (permission.status !== 'granted') {
-        const asked = await Location.requestForegroundPermissionsAsync();
-        if (asked.status !== 'granted') {
-          throw new Error('Location permission is required to send an evacuation request.');
-        }
+      if (!pickupCoords || !dropoffCoords) {
+        throw new Error('Please place both pickup and drop-off pins on the map.');
       }
 
-      const loc = await Location.getCurrentPositionAsync({});
       const pickupPoint = {
         type: 'Point' as const,
-        coordinates: [loc.coords.longitude, loc.coords.latitude] as [number, number],
+        coordinates: [pickupCoords.lng, pickupCoords.lat] as [number, number],
+      };
+      const dropoffPoint = {
+        type: 'Point' as const,
+        coordinates: [dropoffCoords.lng, dropoffCoords.lat] as [number, number],
       };
       const normalizedPassengers = passengers === '5+' ? 5 : parseInt(passengers, 10);
       if (!Number.isFinite(normalizedPassengers) || normalizedPassengers < 1) {
         throw new Error('Please select a valid passenger count.');
       }
 
+      const combinedNotes = [notes.trim(), dropoffDetails.trim()]
+        .filter(Boolean)
+        .join(' | ');
+
       if (onlineNow) {
         try {
           const remoteTrip = await requestEvacuation({
             pickupLoc: pickupPoint,
+            dropoffLoc: dropoffPoint,
             passengers: normalizedPassengers,
             accessibilityNeeds: accessibility || undefined,
-            notes: notes || undefined,
+            notes: combinedNotes || undefined,
           });
 
           await createTrip({
             id: remoteTrip.id || undefined,
             serverId: remoteTrip.id || undefined,
             pickupLoc: JSON.stringify(pickupPoint),
+            dropoffLoc: JSON.stringify(dropoffPoint),
             passengers: normalizedPassengers,
             accessibilityNeeds: accessibility || undefined,
-            notes: notes || undefined,
+            notes: combinedNotes || undefined,
             qrToken: remoteTrip.qrToken || undefined,
             syncedToServer: true,
             status: 'pending',
@@ -77,6 +105,7 @@ export default function RequestScreen() {
           setPassengers('1');
           setAccessibility('');
           setNotes('');
+          setDropoffDetails('');
           return;
         } catch (remoteError: any) {
           const backendMessage = remoteError?.message ?? 'Backend unreachable';
@@ -86,9 +115,10 @@ export default function RequestScreen() {
 
       await createTrip({
         pickupLoc: JSON.stringify(pickupPoint),
+        dropoffLoc: JSON.stringify(dropoffPoint),
         passengers: normalizedPassengers,
         accessibilityNeeds: accessibility || undefined,
-        notes: notes || undefined,
+        notes: combinedNotes || undefined,
         syncedToServer: false,
       });
 
@@ -102,6 +132,72 @@ export default function RequestScreen() {
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+      <AppBackButton fallbackHref="/home" />
+
+      <Card style={styles.card} mode="elevated">
+        <Card.Content style={styles.cardContent}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>📍 Pickup & Drop-off Pins</Text>
+          <Text variant="bodySmall" style={styles.sectionSub}>
+            Select a pin mode, then tap the map to place pickup and drop-off points.
+          </Text>
+          <SegmentedButtons
+            value={pinMode}
+            onValueChange={(value) => setPinMode(value as 'pickup' | 'dropoff')}
+            buttons={[
+              { value: 'pickup', label: 'Set Pickup' },
+              { value: 'dropoff', label: 'Set Drop-off' },
+            ]}
+            style={styles.segments}
+          />
+          <View style={styles.mapWrap}>
+            <MapView
+              style={styles.map}
+              provider={PROVIDER_DEFAULT}
+              onPress={(event) => {
+                const { latitude, longitude } = event.nativeEvent.coordinate;
+                if (pinMode === 'pickup') setPickupCoords({ lat: latitude, lng: longitude });
+                else setDropoffCoords({ lat: latitude, lng: longitude });
+              }}
+              initialRegion={
+                pickupCoords
+                  ? {
+                      latitude: pickupCoords.lat,
+                      longitude: pickupCoords.lng,
+                      latitudeDelta: 0.04,
+                      longitudeDelta: 0.04,
+                    }
+                  : {
+                      latitude: 37.7749,
+                      longitude: -122.4194,
+                      latitudeDelta: 0.07,
+                      longitudeDelta: 0.07,
+                    }
+              }
+            >
+              <UrlTile
+                urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                maximumZ={19}
+                flipY={false}
+                tileSize={256}
+              />
+              {pickupCoords ? (
+                <Marker
+                  coordinate={{ latitude: pickupCoords.lat, longitude: pickupCoords.lng }}
+                  title="Pickup"
+                  pinColor="#1565C0"
+                />
+              ) : null}
+              {dropoffCoords ? (
+                <Marker
+                  coordinate={{ latitude: dropoffCoords.lat, longitude: dropoffCoords.lng }}
+                  title="Drop-off"
+                  pinColor="#2E7D32"
+                />
+              ) : null}
+            </MapView>
+          </View>
+        </Card.Content>
+      </Card>
 
       {/* Connection status banner */}
       <View style={[styles.statusBanner, isOnline ? styles.bannerOnline : styles.bannerOffline]}>
@@ -153,6 +249,20 @@ export default function RequestScreen() {
             placeholder="e.g. rooftop access, bring water, north entrance"
             multiline
             numberOfLines={3}
+            style={styles.input}
+          />
+        </Card.Content>
+      </Card>
+
+      <Card style={styles.card} mode="elevated">
+        <Card.Content style={styles.cardContent}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>📌 Drop-off Details</Text>
+          <TextInput
+            label="Drop-off landmark / destination details"
+            value={dropoffDetails}
+            onChangeText={setDropoffDetails}
+            mode="outlined"
+            placeholder="e.g. City shelter entrance, building name, checkpoint"
             style={styles.input}
           />
         </Card.Content>
@@ -212,6 +322,8 @@ const styles = StyleSheet.create({
 
   card: { borderRadius: 12 },
   cardContent: { gap: 8, paddingVertical: 4 },
+  mapWrap: { height: 220, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#CFD8DC' },
+  map: { flex: 1 },
   sectionTitle: { fontWeight: '700', color: '#1A237E', fontSize: 14 },
   sectionSub: { color: '#78909C' },
   segments: { marginTop: 4 },

@@ -6,6 +6,7 @@ export interface Trip {
   id: string;
   serverId?: string;
   pickupLoc: string;
+  dropoffLoc?: string;
   passengers: number;
   accessibilityNeeds?: string;
   notes?: string;
@@ -46,6 +47,7 @@ export async function createTrip(params: {
   id?: string;
   serverId?: string;
   pickupLoc: string;
+  dropoffLoc?: string;
   passengers: number;
   accessibilityNeeds?: string;
   notes?: string;
@@ -60,6 +62,7 @@ export async function createTrip(params: {
     syncedToServer: params.syncedToServer ?? false,
     createdAt: Date.now(),
     pickupLoc: params.pickupLoc,
+    dropoffLoc: params.dropoffLoc,
     passengers: params.passengers,
     accessibilityNeeds: params.accessibilityNeeds,
     notes: params.notes,

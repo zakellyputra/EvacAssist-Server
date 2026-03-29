@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -12,30 +12,46 @@ import { Button } from 'react-native-paper';
 import * as Location from 'expo-location';
 import NetInfo from '@react-native-community/netinfo';
 import EvacMap from '../components/EvacMap';
-import { getAvailableTrips, acceptTrip, AvailableTrip } from '../services/trips';
+import {
+  getAvailableTrips,
+  acceptTrip,
+  AvailableTrip,
+  calculateRouteToPickup,
+  RoutePoint,
+} from '../services/trips';
 import { clearSession } from '../services/auth';
 import { router } from 'expo-router';
+import AppBackButton from '../components/AppBackButton';
 
 export default function DriverScreen() {
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [isOffline, setIsOffline] = useState(false);
   const [trips, setTrips] = useState<AvailableTrip[]>([]);
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [loadingTrips, setLoadingTrips] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [activeRoute, setActiveRoute] = useState<RoutePoint[]>([]);
+  const [activeDestination, setActiveDestination] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [routeSummary, setRouteSummary] = useState('');
 
   const fetchTrips = useCallback(async () => {
     setLoadingTrips(true);
     setError('');
     try {
-      const data = await getAvailableTrips();
+      const data = await getAvailableTrips(location);
       setTrips(data);
+      setSelectedTripId((current) => {
+        if (data.length === 0) return null;
+        if (current && data.some((trip) => trip._id === current)) return current;
+        return data[0]._id;
+      });
     } catch (e: any) {
       setError(e.message ?? 'Could not load trips');
     } finally {
       setLoadingTrips(false);
     }
-  }, []);
+  }, [location]);
 
   useEffect(() => {
     (async () => {
@@ -49,16 +65,41 @@ export default function DriverScreen() {
       setIsOffline(!state.isConnected);
     });
 
-    fetchTrips();
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    fetchTrips();
+  }, [fetchTrips]);
 
   async function handleAccept(tripId: string) {
     setAcceptingId(tripId);
     setError('');
+    const selectedTrip = trips.find((trip) => trip._id === tripId) ?? null;
     try {
       await acceptTrip(tripId);
+      if (selectedTrip?.pickup_loc?.coordinates?.length === 2 && location) {
+        const pickup = {
+          lat: selectedTrip.pickup_loc.coordinates[1],
+          lng: selectedTrip.pickup_loc.coordinates[0],
+        };
+        const routeToPickup = await calculateRouteToPickup(location, pickup);
+        setActiveRoute(routeToPickup.points);
+        setActiveDestination({ latitude: pickup.lat, longitude: pickup.lng });
+        setRouteSummary(
+          routeToPickup.routeRisk
+            ? `Navigation started · ${routeToPickup.routeRisk.toUpperCase()} risk`
+            : 'Navigation started to pickup pin'
+        );
+      } else if (selectedTrip?.pickup_loc?.coordinates?.length === 2) {
+        setActiveDestination({
+          latitude: selectedTrip.pickup_loc.coordinates[1],
+          longitude: selectedTrip.pickup_loc.coordinates[0],
+        });
+        setRouteSummary('Ride accepted · pickup location selected on map');
+      }
       setTrips((prev) => prev.filter((t) => t._id !== tripId));
+      setSelectedTripId((current) => (current === tripId ? null : current));
     } catch (e: any) {
       setError(e.message ?? 'Could not accept trip');
     } finally {
@@ -71,10 +112,48 @@ export default function DriverScreen() {
     router.replace('/');
   }
 
+  const tripMarkers = useMemo(() => (
+    trips
+      .filter((trip) => Array.isArray(trip.pickup_loc?.coordinates) && trip.pickup_loc.coordinates.length === 2)
+      .map((trip) => ({
+        id: trip._id,
+        title: `${trip.passengers} passenger${trip.passengers === 1 ? '' : 's'}`,
+        description: trip.notes || 'Evacuation request pickup',
+        coordinate: {
+          latitude: trip.pickup_loc.coordinates[1],
+          longitude: trip.pickup_loc.coordinates[0],
+        },
+      }))
+  ), [trips]);
+
+  const mapTripMarkers = useMemo(() => {
+    if (!activeDestination) return tripMarkers;
+    return [
+      ...tripMarkers,
+      {
+        id: 'active-destination',
+        title: 'Active Pickup',
+        description: 'Current accepted trip destination',
+        coordinate: activeDestination,
+      },
+    ];
+  }, [tripMarkers, activeDestination]);
+
+  const focusedLocation = useMemo(() => {
+    if (activeDestination) return activeDestination;
+    const selected = trips.find((trip) => trip._id === selectedTripId);
+    if (!selected?.pickup_loc?.coordinates || selected.pickup_loc.coordinates.length !== 2) return null;
+    return {
+      latitude: selected.pickup_loc.coordinates[1],
+      longitude: selected.pickup_loc.coordinates[0],
+    };
+  }, [trips, selectedTripId, activeDestination]);
+
   function renderTrip({ item }: { item: AvailableTrip }) {
     const [lng, lat] = item.pickup_loc.coordinates;
+    const isSelected = selectedTripId === item._id;
     return (
-      <View style={styles.tripCard}>
+      <View style={[styles.tripCard, isSelected ? styles.tripCardSelected : null]}>
         <View style={styles.tripHeader}>
           <View style={styles.tripBadge}>
             <Text style={styles.tripBadgeText}>{item.passengers}</Text>
@@ -92,6 +171,16 @@ export default function DriverScreen() {
             ) : null}
           </View>
         </View>
+        <Button
+          mode="outlined"
+          onPress={() => setSelectedTripId(item._id)}
+          icon="map-marker"
+          style={styles.viewBtn}
+          contentStyle={styles.acceptBtnContent}
+          labelStyle={styles.viewBtnLabel}
+        >
+          View on Map
+        </Button>
         <Button
           mode="contained"
           onPress={() => handleAccept(item._id)}
@@ -111,6 +200,7 @@ export default function DriverScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar backgroundColor="#0D1B2A" barStyle="light-content" />
+      <AppBackButton floating fallbackHref="/" />
 
       {/* Header */}
       <View style={styles.header}>
@@ -142,7 +232,12 @@ export default function DriverScreen() {
 
       {/* Map */}
       <View style={styles.mapContainer}>
-        <EvacMap userLocation={location} />
+        <EvacMap
+          userLocation={location}
+          tripMarkers={mapTripMarkers}
+          focusedLocation={focusedLocation}
+          routePath={activeRoute}
+        />
       </View>
 
       {/* Trips panel */}
@@ -162,6 +257,7 @@ export default function DriverScreen() {
         </View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {routeSummary ? <Text style={styles.routeSummary}>{routeSummary}</Text> : null}
 
         <FlatList
           data={trips}
@@ -254,6 +350,7 @@ const styles = StyleSheet.create({
   refreshLabel: { color: '#78909C', fontSize: 12 },
 
   errorText: { color: '#EF5350', fontSize: 12, paddingHorizontal: 16, marginBottom: 4 },
+  routeSummary: { color: '#80DEEA', fontSize: 12, paddingHorizontal: 16, marginBottom: 4 },
 
   list: { flexGrow: 0 },
   listContent: { padding: 12, gap: 10 },
@@ -268,6 +365,10 @@ const styles = StyleSheet.create({
     borderColor: '#1A2E3F',
     gap: 10,
     marginBottom: 10,
+  },
+  tripCardSelected: {
+    borderColor: '#42A5F5',
+    borderWidth: 2,
   },
   tripHeader: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
   tripBadge: {
@@ -286,6 +387,8 @@ const styles = StyleSheet.create({
   tripNotes: { color: '#78909C', fontSize: 12 },
 
   acceptBtn: { borderRadius: 8, backgroundColor: '#1B5E20' },
+  viewBtn: { borderRadius: 8, borderColor: '#1E88E5' },
+  viewBtnLabel: { color: '#90CAF9', fontSize: 13, fontWeight: '700' },
   acceptBtnContent: { paddingVertical: 2 },
   acceptBtnLabel: { fontSize: 14, fontWeight: '700' },
 });

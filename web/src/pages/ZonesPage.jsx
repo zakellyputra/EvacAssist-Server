@@ -41,7 +41,13 @@ export default function ZonesPage() {
       try {
         const data = await apiFetch('/api/zones');
         if (cancelled) return;
-        setZones(data.map(normalizeZone));
+        const normalized = data.map(normalizeZone);
+        if (normalized.length) {
+          setZones(normalized);
+        } else {
+          setZones(mockZones);
+          setError('No live zones were found, so mock fallback zone cards are being displayed.');
+        }
       } catch {
         if (cancelled) return;
         setZones(mockZones);

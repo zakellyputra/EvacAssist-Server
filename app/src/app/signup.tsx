@@ -13,6 +13,7 @@ import { TextInput, Button } from 'react-native-paper';
 import { router } from 'expo-router';
 import { API_URL } from '../constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import AppBackButton from '../components/AppBackButton';
 
 const AUTH_KEY = 'evacassist:auth';
 
@@ -70,6 +71,7 @@ export default function SignupScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar backgroundColor="#0D1B2A" barStyle="light-content" />
+      <AppBackButton floating fallbackHref="/" />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

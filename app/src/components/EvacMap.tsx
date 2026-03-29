@@ -1,9 +1,20 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { StyleSheet, View, Text } from 'react-native';
-import MapView, { Marker, UrlTile, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, UrlTile, Polygon, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
+import { fetchMapRiskZones, MapRiskZone } from '../services/riskZones';
+
+export interface TripMapMarker {
+  id: string;
+  title: string;
+  description?: string;
+  coordinate: { latitude: number; longitude: number };
+}
 
 interface Props {
   userLocation: { lat: number; lng: number } | null;
+  tripMarkers?: TripMapMarker[];
+  focusedLocation?: { latitude: number; longitude: number } | null;
+  routePath?: { latitude: number; longitude: number }[];
 }
 
 const DEFAULT_REGION = {
@@ -13,8 +24,15 @@ const DEFAULT_REGION = {
   longitudeDelta: 0.05,
 };
 
-export default function EvacMap({ userLocation }: Props) {
+export default function EvacMap({
+  userLocation,
+  tripMarkers = [],
+  focusedLocation = null,
+  routePath = [],
+}: Props) {
   const mapRef = useRef<MapView>(null);
+  const [zones, setZones] = useState<MapRiskZone[]>([]);
+  const [usingFallback, setUsingFallback] = useState(false);
 
   useEffect(() => {
     if (userLocation && mapRef.current) {
@@ -29,6 +47,60 @@ export default function EvacMap({ userLocation }: Props) {
       );
     }
   }, [userLocation]);
+
+  useEffect(() => {
+    if (!focusedLocation || !mapRef.current) return;
+    mapRef.current.animateToRegion(
+      {
+        latitude: focusedLocation.latitude,
+        longitude: focusedLocation.longitude,
+        latitudeDelta: 0.015,
+        longitudeDelta: 0.015,
+      },
+      700
+    );
+  }, [focusedLocation]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const result = await fetchMapRiskZones();
+      if (cancelled) return;
+      setZones(result.zones);
+      setUsingFallback(result.usingFallback);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function zoneColors(riskLevel: MapRiskZone['riskLevel']) {
+    switch (riskLevel) {
+      case 'critical':
+        return { fill: 'rgba(198, 40, 40, 0.25)', stroke: '#C62828' };
+      case 'high':
+        return { fill: 'rgba(245, 124, 0, 0.22)', stroke: '#F57C00' };
+      case 'moderate':
+        return { fill: 'rgba(251, 192, 45, 0.2)', stroke: '#FBC02D' };
+      default:
+        return { fill: 'rgba(56, 142, 60, 0.2)', stroke: '#388E3C' };
+    }
+  }
+
+  function zonePinColor(riskLevel: MapRiskZone['riskLevel']) {
+    switch (riskLevel) {
+      case 'critical':
+        return '#C62828';
+      case 'high':
+        return '#F57C00';
+      case 'moderate':
+        return '#FBC02D';
+      default:
+        return '#388E3C';
+    }
+  }
 
   return (
     <View style={styles.container}>
@@ -65,6 +137,48 @@ export default function EvacMap({ userLocation }: Props) {
             pinColor="#1976D2"
           />
         )}
+
+        {zones.map((zone) => {
+          const colors = zoneColors(zone.riskLevel);
+          return (
+            <Polygon
+              key={zone.id}
+              coordinates={zone.coordinates}
+              fillColor={colors.fill}
+              strokeColor={colors.stroke}
+              strokeWidth={2}
+            />
+          );
+        })}
+
+        {zones.map((zone) => (
+          <Marker
+            key={`${zone.id}-center`}
+            coordinate={zone.center}
+            title={zone.name}
+            description={`${zone.riskLevel.toUpperCase()} risk zone`}
+            pinColor={zonePinColor(zone.riskLevel)}
+          />
+        ))}
+
+        {tripMarkers.map((marker) => (
+          <Marker
+            key={marker.id}
+            coordinate={marker.coordinate}
+            title={marker.title}
+            description={marker.description}
+            pinColor="#1565C0"
+          />
+        ))}
+
+        {routePath.length >= 2 ? (
+          <Polyline
+            coordinates={routePath}
+            strokeColor="#00BCD4"
+            strokeWidth={4}
+            lineDashPattern={[1]}
+          />
+        ) : null}
       </MapView>
 
       {/* Live chip */}
@@ -72,6 +186,12 @@ export default function EvacMap({ userLocation }: Props) {
         <View style={styles.liveDot} />
         <Text style={styles.liveText}>LIVE</Text>
       </View>
+
+      {usingFallback ? (
+        <View style={styles.fallbackChip}>
+          <Text style={styles.fallbackText}>TEST ZONES</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -98,4 +218,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   liveText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800', letterSpacing: 0.8 },
+  fallbackChip: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    backgroundColor: 'rgba(245, 124, 0, 0.95)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  fallbackText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800', letterSpacing: 0.7 },
 });
