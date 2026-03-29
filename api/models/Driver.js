@@ -12,7 +12,7 @@ const locationSchema = new mongoose.Schema(
 
 const driverSchema = new mongoose.Schema(
   {
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     vehicleId: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle' },
     licenseVerified: { type: Boolean, default: false },
     status: {

@@ -73,7 +73,7 @@ export default function TopHeader() {
           <div className="profile-card-copy">
             <span>{user?.role ?? 'Coordinator'}</span>
             <strong>{user?.name ?? 'Admin User'}</strong>
-            <p>Dispatch board synchronized with the current mock operations snapshot.</p>
+            <p>Dispatch board synchronized with the current live operations snapshot.</p>
           </div>
           <button type="button" className="button button-secondary button-inline" onClick={handleLogout}>
             Logout

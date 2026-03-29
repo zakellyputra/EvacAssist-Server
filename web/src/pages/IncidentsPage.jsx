@@ -5,7 +5,6 @@ import LoadingState from '../components/LoadingState';
 import Panel from '../components/Panel';
 import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
-import { mockIncidents } from '../mock/incidents';
 import { formatTimestamp } from '../utils/formatters';
 
 function normalizeIncident(incident) {
@@ -39,13 +38,13 @@ export default function IncidentsPage() {
       setLoading(true);
       setLoadError('');
       try {
-        const data = await apiFetch('/api/incidents');
+        const data = await apiFetch('/api/incidents/public', { auth: false });
         if (cancelled) return;
-        setIncidents(data.map(normalizeIncident));
-      } catch {
+        setIncidents(Array.isArray(data) ? data.map(normalizeIncident) : []);
+      } catch (loadError) {
         if (cancelled) return;
-        setIncidents(mockIncidents);
-        setLoadError('Live incident data was unavailable, so the page is showing mock incident records.');
+        setIncidents([]);
+        setLoadError(loadError.message || 'Live incident data is unavailable.');
       } finally {
         if (!cancelled) setLoading(false);
       }

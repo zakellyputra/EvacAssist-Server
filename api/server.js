@@ -3,6 +3,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import mongoose from 'mongoose';
+import dns from 'node:dns';
 import cors from 'cors';
 import cron from 'node-cron';
 
@@ -85,9 +86,47 @@ cron.schedule('0 * * * *', () => {
 });
 registerConflictIntelJob();
 
+function parseDnsServers(value) {
+  return String(value ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function shouldRetryMongoWithCustomDns(err, mongoUri) {
+  return Boolean(
+    mongoUri?.startsWith('mongodb+srv://')
+    && err?.code === 'ECONNREFUSED'
+    && err?.syscall === 'querySrv'
+  );
+}
+
+async function connectMongoWithDnsFallback(mongoUri) {
+  try {
+    return await mongoose.connect(mongoUri);
+  } catch (err) {
+    if (!shouldRetryMongoWithCustomDns(err, mongoUri)) throw err;
+
+    const dnsServers = parseDnsServers(process.env.MONGODB_DNS_SERVERS ?? '8.8.8.8,1.1.1.1');
+    if (!dnsServers.length) throw err;
+
+    dns.setServers(dnsServers);
+    console.warn(
+      `[mongo] SRV lookup failed (${err.code}). Retrying with DNS servers: ${dnsServers.join(', ')}`
+    );
+
+    return mongoose.connect(mongoUri);
+  }
+}
+
+const mongoUri = process.env.MONGODB_URI;
+if (!mongoUri) {
+  console.error('MONGODB_URI is not set');
+  process.exit(1);
+}
+
 // Connect to MongoDB Atlas then start server
-mongoose
-  .connect(process.env.MONGODB_URI)
+connectMongoWithDnsFallback(mongoUri)
   .then(async () => {
     await User.syncIndexes();
     await syncConflictIntelIndexes();

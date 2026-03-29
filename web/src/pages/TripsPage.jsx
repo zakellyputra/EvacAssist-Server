@@ -7,21 +7,24 @@ import FilterBar from '../components/FilterBar';
 import LoadingState from '../components/LoadingState';
 import Panel from '../components/Panel';
 import StatusBadge from '../components/StatusBadge';
-import { mockTrips } from '../mock/trips';
 import { formatLocationLabel, formatShortId, formatTimestamp } from '../utils/formatters';
 
 function normalizeTrip(trip) {
   return {
-    _id: trip._id,
+    _id: String(trip?._id ?? ''),
     status: trip.status ?? 'pending',
-    driverUserId: trip.driver_id ?? trip.driverUserId ?? 'Unavailable',
-    pickupLocation: trip.pickup_loc
-      ? { coordinates: trip.pickup_loc.coordinates }
-      : trip.pickupLocation,
-    dropoffLocation: trip.dropoff_loc
-      ? { coordinates: trip.dropoff_loc.coordinates }
-      : trip.dropoffLocation,
-    updatedAt: trip.updated_at ?? trip.updatedAt,
+    driverUserId: trip.driver_id ?? trip.driverUserId ?? null,
+    requestId: trip.requestId ? String(trip.requestId) : null,
+    vehicleId: trip.vehicleId ? String(trip.vehicleId) : null,
+    pickupLocation: trip.pickupLocation ?? (trip.pickup_loc?.coordinates?.length === 2
+      ? { lat: trip.pickup_loc.coordinates[1], lng: trip.pickup_loc.coordinates[0] }
+      : null),
+    dropoffLocation: trip.dropoffLocation ?? (trip.dropoff_loc?.coordinates?.length === 2
+      ? { lat: trip.dropoff_loc.coordinates[1], lng: trip.dropoff_loc.coordinates[0] }
+      : null),
+    passengers: Number(trip.passengers ?? 0),
+    updatedAt: trip.updated_at ?? trip.updatedAt ?? trip.createdAt,
+    createdAt: trip.created_at ?? trip.createdAt,
   };
 }
 
@@ -39,13 +42,14 @@ export default function TripsPage() {
       setLoading(true);
       setError('');
       try {
-        const data = await apiFetch('/api/trips/my');
+        const overview = await apiFetch('/api/demo/operations-overview', { auth: false });
         if (cancelled) return;
-        setTrips(data.map(normalizeTrip));
-      } catch {
+        const records = Array.isArray(overview?.feeds?.trips) ? overview.feeds.trips : [];
+        setTrips(records.map(normalizeTrip));
+      } catch (loadError) {
         if (cancelled) return;
-        setTrips(mockTrips);
-        setError('Live trip data was unavailable, so mock fallback data is being displayed.');
+        setTrips([]);
+        setError(loadError.message || 'Live trip data is currently unavailable.');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -66,8 +70,8 @@ export default function TripsPage() {
 
   const columns = [
     { key: '_id', label: 'Trip', render: (_, row) => <strong>{formatShortId(row._id)}</strong> },
-    { key: 'status', label: 'Status', render: (_, row) => <StatusBadge category="tripStatus" value={row.status} /> },
-    { key: 'driverUserId', label: 'Driver' },
+    { key: 'status', label: 'Status', render: (_, row) => <StatusBadge value={row.status} /> },
+    { key: 'driverUserId', label: 'Driver', render: (_, row) => row.driverUserId ?? 'Unassigned' },
     { key: 'pickupLocation', label: 'Pickup', render: (_, row) => formatLocationLabel(row.pickupLocation) },
     { key: 'dropoffLocation', label: 'Dropoff', render: (_, row) => formatLocationLabel(row.dropoffLocation) },
     { key: 'updatedAt', label: 'Updated', render: (_, row) => formatTimestamp(row.updatedAt) },
@@ -77,7 +81,7 @@ export default function TripsPage() {
     <div className="page-stack">
       <ErrorBanner message={error} />
 
-      <Panel title="Trip Feed" subtitle="Real trip monitoring with safe fallback to mock transport records">
+      <Panel title="Trip Feed" subtitle="Live trip monitoring from backend records">
         <FilterBar searchValue={search} onSearchChange={setSearch}>
           <span className="filter-helper">{filteredTrips.length} trips in view</span>
         </FilterBar>
@@ -113,15 +117,33 @@ export default function TripsPage() {
                 </div>
                 <div className="detail-section">
                   <span className="detail-label">Status</span>
-                  <StatusBadge category="tripStatus" value={selectedTrip.status} />
+                  <StatusBadge value={selectedTrip.status} />
                 </div>
                 <div className="detail-section">
                   <span className="detail-label">Driver</span>
-                  <strong>{selectedTrip.driverUserId}</strong>
+                  <strong>{selectedTrip.driverUserId ?? 'Unassigned'}</strong>
                 </div>
                 <div className="detail-section">
                   <span className="detail-label">Updated</span>
                   <strong>{formatTimestamp(selectedTrip.updatedAt)}</strong>
+                </div>
+              </div>
+              <div className="detail-grid">
+                <div className="detail-section">
+                  <span className="detail-label">Request ID</span>
+                  <strong>{selectedTrip.requestId ?? 'Unavailable'}</strong>
+                </div>
+                <div className="detail-section">
+                  <span className="detail-label">Vehicle ID</span>
+                  <strong>{selectedTrip.vehicleId ?? 'Unassigned'}</strong>
+                </div>
+                <div className="detail-section">
+                  <span className="detail-label">Passengers</span>
+                  <strong>{selectedTrip.passengers}</strong>
+                </div>
+                <div className="detail-section">
+                  <span className="detail-label">Created</span>
+                  <strong>{formatTimestamp(selectedTrip.createdAt)}</strong>
                 </div>
               </div>
               <div className="detail-section">
@@ -131,10 +153,6 @@ export default function TripsPage() {
               <div className="detail-section">
                 <span className="detail-label">Dropoff</span>
                 <strong>{formatLocationLabel(selectedTrip.dropoffLocation)}</strong>
-              </div>
-              <div className="detail-section">
-                <span className="detail-label">Next Integration</span>
-                <p>Route overlays, ETA history, and driver actions can attach to this detail panel later without changing the page structure.</p>
               </div>
             </div>
           ) : null}

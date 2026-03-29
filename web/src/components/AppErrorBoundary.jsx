@@ -27,7 +27,7 @@ export default class AppErrorBoundary extends React.Component {
             <h1>Operations console encountered an unexpected UI error.</h1>
             <p>
               The admin workspace did not shut down, but this screen prevented a full white-page
-              crash. Reload the console to restore the latest mock operations state.
+              crash. Reload the console to restore the latest operations state.
             </p>
             <button type="button" className="button button-primary" onClick={this.handleReload}>
               Reload Console

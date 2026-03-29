@@ -11,7 +11,7 @@ import {
 import { Button } from 'react-native-paper';
 import * as Location from 'expo-location';
 import NetInfo from '@react-native-community/netinfo';
-import EvacMap from '../components/EvacMap';
+import EvacMap, { type TripMapMarker } from '../components/EvacMap';
 import {
   getAvailableTrips,
   acceptTrip,
@@ -32,7 +32,8 @@ export default function DriverScreen() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [activeRoute, setActiveRoute] = useState<RoutePoint[]>([]);
-  const [activeDestination, setActiveDestination] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [activePickup, setActivePickup] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [activeDropoff, setActiveDropoff] = useState<{ latitude: number; longitude: number } | null>(null);
   const [routeSummary, setRouteSummary] = useState('');
 
   const fetchTrips = useCallback(async () => {
@@ -78,25 +79,69 @@ export default function DriverScreen() {
     const selectedTrip = trips.find((trip) => trip._id === tripId) ?? null;
     try {
       await acceptTrip(tripId);
-      if (selectedTrip?.pickup_loc?.coordinates?.length === 2 && location) {
+      const hasPickup = selectedTrip?.pickup_loc?.coordinates?.length === 2;
+      const hasDropoff = selectedTrip?.dropoff_loc?.coordinates?.length === 2;
+
+      if (hasPickup) {
         const pickup = {
           lat: selectedTrip.pickup_loc.coordinates[1],
           lng: selectedTrip.pickup_loc.coordinates[0],
         };
-        const routeToPickup = await calculateRouteToPickup(location, pickup);
-        setActiveRoute(routeToPickup.points);
-        setActiveDestination({ latitude: pickup.lat, longitude: pickup.lng });
-        setRouteSummary(
-          routeToPickup.routeRisk
-            ? `Navigation started · ${routeToPickup.routeRisk.toUpperCase()} risk`
-            : 'Navigation started to pickup pin'
-        );
-      } else if (selectedTrip?.pickup_loc?.coordinates?.length === 2) {
-        setActiveDestination({
-          latitude: selectedTrip.pickup_loc.coordinates[1],
-          longitude: selectedTrip.pickup_loc.coordinates[0],
-        });
-        setRouteSummary('Ride accepted · pickup location selected on map');
+        const pickupCoord = { latitude: pickup.lat, longitude: pickup.lng };
+        setActivePickup(pickupCoord);
+
+        const dropoff = hasDropoff
+          ? {
+              lat: selectedTrip.dropoff_loc!.coordinates[1],
+              lng: selectedTrip.dropoff_loc!.coordinates[0],
+            }
+          : null;
+        const dropoffCoord = dropoff ? { latitude: dropoff.lat, longitude: dropoff.lng } : null;
+        setActiveDropoff(dropoffCoord);
+
+        if (location) {
+          const routeToPickup = await calculateRouteToPickup(location, pickup);
+          let combinedRoute = routeToPickup.points;
+          let summary = routeToPickup.routeRisk
+            ? `Navigation started to pickup · ${routeToPickup.routeRisk.toUpperCase()} risk`
+            : 'Navigation started to pickup pin';
+
+          if (dropoff) {
+            const routeToDropoff = await calculateRouteToPickup(pickup, dropoff);
+            if (routeToDropoff.points.length >= 2) {
+              combinedRoute = [
+                ...routeToPickup.points,
+                ...routeToDropoff.points.slice(routeToPickup.points.length > 0 ? 1 : 0),
+              ];
+            }
+
+            const riskLabels = Array.from(
+              new Set(
+                [routeToPickup.routeRisk, routeToDropoff.routeRisk]
+                  .filter((value): value is string => Boolean(value))
+                  .map((value) => value.toUpperCase())
+              )
+            );
+
+            summary = riskLabels.length
+              ? `Navigation started · pickup then drop-off · ${riskLabels.join(' / ')} risk`
+              : 'Navigation started · pickup then drop-off';
+          }
+
+          setActiveRoute(combinedRoute);
+          setRouteSummary(summary);
+        } else {
+          setActiveRoute([]);
+          setRouteSummary(
+            dropoff
+              ? 'Ride accepted · pickup and drop-off pins selected on map'
+              : 'Ride accepted · pickup location selected on map'
+          );
+        }
+      } else {
+        setActiveRoute([]);
+        setActivePickup(null);
+        setActiveDropoff(null);
       }
       setTrips((prev) => prev.filter((t) => t._id !== tripId));
       setSelectedTripId((current) => (current === tripId ? null : current));
@@ -127,27 +172,41 @@ export default function DriverScreen() {
   ), [trips]);
 
   const mapTripMarkers = useMemo(() => {
-    if (!activeDestination) return tripMarkers;
+    if (!activePickup && !activeDropoff) return tripMarkers;
+    const activeMarkers: TripMapMarker[] = [];
+    if (activePickup) {
+      activeMarkers.push({
+        id: 'active-pickup',
+        title: 'Active Pickup',
+        description: 'Pickup waypoint for the accepted trip',
+        coordinate: activePickup,
+        pinColor: '#2E7D32',
+      });
+    }
+    if (activeDropoff) {
+      activeMarkers.push({
+        id: 'active-dropoff',
+        title: 'Active Drop-off',
+        description: 'Drop-off waypoint for the accepted trip',
+        coordinate: activeDropoff,
+        pinColor: '#EF6C00',
+      });
+    }
     return [
       ...tripMarkers,
-      {
-        id: 'active-destination',
-        title: 'Active Pickup',
-        description: 'Current accepted trip destination',
-        coordinate: activeDestination,
-      },
+      ...activeMarkers,
     ];
-  }, [tripMarkers, activeDestination]);
+  }, [tripMarkers, activePickup, activeDropoff]);
 
   const focusedLocation = useMemo(() => {
-    if (activeDestination) return activeDestination;
+    if (activePickup) return activePickup;
     const selected = trips.find((trip) => trip._id === selectedTripId);
     if (!selected?.pickup_loc?.coordinates || selected.pickup_loc.coordinates.length !== 2) return null;
     return {
       latitude: selected.pickup_loc.coordinates[1],
       longitude: selected.pickup_loc.coordinates[0],
     };
-  }, [trips, selectedTripId, activeDestination]);
+  }, [trips, selectedTripId, activePickup]);
 
   function renderTrip({ item }: { item: AvailableTrip }) {
     const [lng, lat] = item.pickup_loc.coordinates;

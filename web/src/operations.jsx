@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from './api';
-import { auditLogs as initialAuditLogs, driverContexts, drivers as rawDrivers, initialActivity, initialAlerts, initialRideGroups, liveMapData, operationsMap, users as mockUsers, vehicles as mockVehicles } from './mock/operations';
 import {
   getConflictSeverityRank,
   getHighestConflictSeverity,
@@ -11,6 +10,203 @@ import {
 import { buildRideGroupTimeline, evaluateAlert, evaluateRideGroup } from './utils/decisionEngine';
 
 const OperationsContext = createContext(null);
+const DEFAULT_MAP_CENTER = [-86.1581, 39.7684];
+
+const DEFAULT_LIVE_MAP_DATA = {
+  center: DEFAULT_MAP_CENTER,
+  zoom: 11,
+  mapRideGroups: [],
+  mapDrivers: [],
+  mapPickupPoints: [],
+  mapZones: [],
+  mapAlertAreas: [],
+};
+
+const operationsMap = {
+  summary: [],
+  legend: [
+    { label: 'Ride Group', type: 'ride-group' },
+    { label: 'Driver', type: 'driver' },
+    { label: 'Pickup Point', type: 'pickup' },
+    { label: 'Restricted Zone', type: 'restricted' },
+  ],
+  zones: [],
+  routes: [],
+  markers: [],
+  annotations: [],
+};
+
+function formatClock(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '--:--';
+  return new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+function formatDriverStatusLabel(status) {
+  const normalized = String(status ?? '').toLowerCase();
+  if (normalized === 'available') return 'Available';
+  if (normalized === 'assigned') return 'Assigned';
+  if (normalized === 'en_route_pickup') return 'En Route to Pickup';
+  if (normalized === 'transporting') return 'Transporting';
+  if (normalized === 'unavailable') return 'Unavailable';
+  if (normalized === 'offline') return 'Offline';
+  return 'Unknown';
+}
+
+function deriveDriverIssueState(driver) {
+  const note = String(driver?.notes ?? '').toLowerCase();
+  const status = String(driver?.status ?? '').toLowerCase();
+  if (status === 'offline') return 'No live heartbeat';
+  if (status === 'unavailable') return 'Unavailable for dispatch';
+  if (note.includes('delay')) return 'Delayed';
+  if (note.includes('telemetry') || note.includes('stopped')) return 'No location update received';
+  if (note.includes('route') && note.includes('conflict')) return 'Route conflict under review';
+  return null;
+}
+
+function normalizeBackendRideGroup(group, index) {
+  if (!group || typeof group !== 'object') return null;
+  const rideGroupId = String(group.id ?? `RG-${String(group.tripId ?? index).slice(-4).toUpperCase()}`);
+  const tripId = group.tripId ? String(group.tripId) : null;
+  const requestId = group.requestId ? String(group.requestId) : null;
+  const driverUserId = group.driverUserId ? String(group.driverUserId) : null;
+  const vehicleId = group.vehicleId ? String(group.vehicleId) : null;
+  const zoneId = group.zoneId ? String(group.zoneId) : null;
+  const ridersJoined = Number(group.ridersJoined ?? 0);
+  const capacity = Math.max(Number(group.capacity ?? ridersJoined), ridersJoined);
+  const createdAt = group.createdAt ?? new Date().toISOString();
+  const updatedAt = group.updatedAt ?? createdAt;
+  const status = group.status ?? 'Open';
+  const interventionState = group.interventionState ?? 'None';
+  const readinessEstimate = group.departureReadinessDetail?.readinessEstimate
+    ?? group.departureReadiness
+    ?? (status === 'En Route' ? 'Departed' : 'Pending dispatch release');
+
+  return {
+    ...group,
+    id: rideGroupId,
+    tripId,
+    requestId,
+    driverUserId,
+    vehicleId,
+    zoneId,
+    ridersJoined,
+    capacity,
+    driver: group.driver ?? (driverUserId ? `Driver ${driverUserId.slice(-4).toUpperCase()}` : 'Unassigned'),
+    driverUnitId: group.driverUnitId ?? (driverUserId ? `DRV-${driverUserId.slice(-4).toUpperCase()}` : null),
+    vehicle: group.vehicle ?? (vehicleId ? `Vehicle ${vehicleId.slice(-4).toUpperCase()}` : 'Vehicle TBD'),
+    status,
+    interventionState,
+    createdAt,
+    updatedAt,
+    linkedAlertIds: Array.isArray(group.linkedAlertIds) ? group.linkedAlertIds.map(String) : [],
+    routeNotes: Array.isArray(group.routeNotes) ? group.routeNotes : [],
+    pickupIssues: Array.isArray(group.pickupIssues) ? group.pickupIssues : [],
+    riders: Array.isArray(group.riders) ? group.riders : [],
+    schemaRefs: {
+      tripId,
+      requestId,
+      driverUserId,
+      vehicleId,
+      zoneId,
+      ...(group.schemaRefs ?? {}),
+    },
+    schemaStatus: {
+      trip: group.tripStatus ?? group.schemaStatus?.trip ?? null,
+      request: group.requestStatus ?? group.schemaStatus?.request ?? null,
+      driver: group.schemaStatus?.driver ?? null,
+    },
+    schemaSnapshot: {
+      ...(group.schemaSnapshot ?? {}),
+      driverUser: group.schemaSnapshot?.driverUser
+        ? {
+          ...group.schemaSnapshot.driverUser,
+          fullName: group.schemaSnapshot.driverUser.fullName ?? group.schemaSnapshot.driverUser.name,
+        }
+        : group.schemaSnapshot?.driverUser ?? null,
+    },
+    departureReadiness: group.departureReadiness ?? readinessEstimate,
+    departureReadinessDetail: {
+      driverAssigned: group.departureReadinessDetail?.driverAssigned ?? (driverUserId ? 'Yes' : 'No'),
+      minimumRidersReached: group.departureReadinessDetail?.minimumRidersReached ?? (ridersJoined > 0 ? 'Yes' : 'No'),
+      riderCheckIn: group.departureReadinessDetail?.riderCheckIn ?? `${ridersJoined} of ${capacity} confirmed`,
+      routeAdvisory: group.departureReadinessDetail?.routeAdvisory ?? 'Route under live monitoring',
+      readinessEstimate,
+      ...(group.departureReadinessDetail ?? {}),
+    },
+    summary: group.summary ?? `${rideGroupId} is active in ${group.zone ?? 'the assigned zone'}.`,
+    priorityScore: typeof group.priorityScore === 'number' ? group.priorityScore : 0,
+    activeConflictCount: Number(group.activeConflictCount ?? 0),
+    hasBlockingConflicts: Boolean(group.hasBlockingConflicts),
+    readinessState: group.readinessState ?? (driverUserId ? 'READY' : 'PENDING'),
+    actionState: group.actionState ?? (driverUserId ? 'READY' : 'PENDING'),
+  };
+}
+
+function normalizeBackendDriver(driver, index) {
+  if (!driver || typeof driver !== 'object') return null;
+  const userId = driver.userId ? String(driver.userId) : null;
+  const id = String(driver._id ?? `driver-${index}`);
+  const unitId = driver.unitId ?? (userId ? `DRV-${userId.slice(-4).toUpperCase()}` : `DRV-${String(index + 1).padStart(3, '0')}`);
+  return {
+    ...driver,
+    _id: id,
+    userId,
+    vehicleId: driver.vehicleId ? String(driver.vehicleId) : null,
+    unitId,
+    displayName: driver.displayName ?? (userId ? `Driver ${userId.slice(-4).toUpperCase()}` : `Driver ${index + 1}`),
+    status: String(driver.status ?? 'offline').toLowerCase(),
+    operationalState: driver.operationalState ?? formatDriverStatusLabel(driver.status),
+    updatedAt: driver.updatedAt ?? new Date().toISOString(),
+  };
+}
+
+function normalizeBackendVehicle(vehicle, index) {
+  if (!vehicle || typeof vehicle !== 'object') return null;
+  const id = String(vehicle._id ?? `vehicle-${index}`);
+  return {
+    ...vehicle,
+    _id: id,
+    driverUserId: vehicle.driverUserId ? String(vehicle.driverUserId) : null,
+    isActive: vehicle.isActive !== false,
+    seatCapacity: Number(vehicle.seatCapacity ?? 0),
+    label: vehicle.label ?? `Vehicle ${id.slice(-4).toUpperCase()}`,
+  };
+}
+
+function mapBackendActivityItem(item, index) {
+  const timestamp = item?.timestamp ?? item?.updatedAt ?? item?.createdAt ?? new Date().toISOString();
+  return {
+    id: String(item?.id ?? `activity-${index}`),
+    time: formatClock(timestamp),
+    title: item?.title ?? 'Operations update',
+    description: item?.description ?? 'Live backend event',
+    meta: item?.meta ?? '',
+    timestamp,
+    tripId: item?.tripId ? String(item.tripId) : null,
+    rideGroupId: item?.rideGroupId ? String(item.rideGroupId) : null,
+  };
+}
+
+function buildFallbackActivity(rideGroups) {
+  return [...(Array.isArray(rideGroups) ? rideGroups : [])]
+    .sort(byNewest)
+    .slice(0, 12)
+    .map((group, index) => ({
+      id: `activity-fallback-${group.id}-${index}`,
+      time: formatClock(group.updatedAt ?? group.createdAt),
+      title: `${group.id} ${String(group.status ?? 'Open').toLowerCase()}`,
+      description: `${group.pickupPoint ?? 'Pickup point'} in ${group.zone ?? 'Unassigned zone'}`,
+      meta: `${group.driver ?? 'Unassigned driver'} · ${group.ridersJoined ?? 0}/${group.capacity ?? 0}`,
+      timestamp: group.updatedAt ?? group.createdAt ?? new Date().toISOString(),
+      tripId: group.tripId ?? null,
+      rideGroupId: group.id,
+    }));
+}
 
 function formatCount(value) {
   return String(value);
@@ -28,6 +224,82 @@ function byAlertPriority(a, b) {
   const statusDelta = (statusRank[b.status] ?? 0) - (statusRank[a.status] ?? 0);
   if (statusDelta) return statusDelta;
   return new Date(b.createdAt) - new Date(a.createdAt);
+}
+
+function severityFromIncident(incident) {
+  const value = Number(incident?.severity ?? 0);
+  if (value >= 0.75) return 'Critical';
+  if (value >= 0.4) return 'Warning';
+  return 'Monitoring';
+}
+
+function toneFromSeverity(severity) {
+  if (severity === 'Critical') return 'strong';
+  if (severity === 'Warning') return 'warning';
+  return 'muted';
+}
+
+function statusFromIncident(incident) {
+  return incident?.isActive === false ? 'Resolved' : 'Open';
+}
+
+function suggestedActionFromIncident(incident) {
+  const eventType = String(incident?.event_type ?? '').toLowerCase();
+  if (eventType.includes('road_block') || eventType.includes('checkpoint')) return 'Reroute traffic immediately';
+  if (eventType.includes('armed_clash')) return 'Escalate and avoid corridor';
+  if (eventType.includes('flood') || eventType.includes('fire')) return 'Dispatch alternate pickup path';
+  return 'Monitor and triage impact';
+}
+
+function mapIncidentToAlert(incident, index, rideGroupIdByTripId = new Map(), zoneNameById = new Map()) {
+  const severity = severityFromIncident(incident);
+  const [lng, lat] = Array.isArray(incident?.location?.coordinates)
+    ? incident.location.coordinates
+    : [null, null];
+  const tripId = incident?.tripId ? String(incident.tripId) : null;
+  const inferredRideGroupId = tripId ? `RG-${tripId.slice(-4).toUpperCase()}` : null;
+
+  return {
+    id: String(incident?._id ?? `incident-alert-${index}`),
+    code: `INC-${String(index + 1).padStart(3, '0')}`,
+    title: incident?.title ?? String(incident?.event_type ?? 'Incident').replace(/_/g, ' '),
+    description: incident?.description ?? 'Live incident reported from database feed.',
+    severity,
+    severityTone: toneFromSeverity(severity),
+    status: statusFromIncident(incident),
+    relatedGroupId: tripId ? (rideGroupIdByTripId.get(tripId) ?? inferredRideGroupId) : null,
+    relatedZone: incident?.zoneId
+      ? (zoneNameById.get(String(incident.zoneId)) ?? `Zone ${String(incident.zoneId).slice(-4)}`)
+      : 'Unzoned',
+    suggestedAction: suggestedActionFromIncident(incident),
+    createdAt: incident?.created_at ?? new Date().toISOString(),
+    assignedDriver: null,
+    pickupPoint: Number.isFinite(lat) && Number.isFinite(lng) ? `${lat.toFixed(4)}, ${lng.toFixed(4)}` : 'Coordinate unavailable',
+    resolvedToday: false,
+    source: 'database',
+  };
+}
+
+function mapConflictZoneToAlert(zone, index) {
+  const riskLevel = String(zone?.riskLevel ?? 'green').toLowerCase();
+  const severity = riskLevel === 'red' ? 'Critical' : riskLevel === 'orange' ? 'Warning' : 'Monitoring';
+  return {
+    id: `conflict-zone-alert-${zone?.zoneId ?? index}`,
+    code: `CNF-${String(index + 1).padStart(3, '0')}`,
+    title: `Conflict zone ${zone?.zoneType ?? 'risk'}`,
+    description: `Conflict zone ${zone?.zoneId ?? 'unknown'} is currently marked ${riskLevel}.`,
+    severity,
+    severityTone: toneFromSeverity(severity),
+    status: 'Open',
+    relatedGroupId: null,
+    relatedZone: zone?.zoneId ?? `Conflict-${index + 1}`,
+    suggestedAction: zone?.recommendedAction ? String(zone.recommendedAction).replace(/_/g, ' ') : 'Review route safety',
+    createdAt: zone?.activeUntil ?? new Date().toISOString(),
+    assignedDriver: null,
+    pickupPoint: 'Conflict map zone',
+    resolvedToday: false,
+    source: 'database',
+  };
 }
 
 function formatRiskLevelLabel(riskLevel) {
@@ -298,19 +570,22 @@ function mapRideGroupToOperationalViewModel(rideGroup, alerts, drivers, auditEnt
   };
 }
 
-function createAuditEntry(log, usersById, rideGroupsByTripId) {
-  const relatedRideGroup = rideGroupsByTripId.get(log.entityId) ?? null;
+function createAuditEntry(item, rideGroupsByTripId, index = 0) {
+  const tripId = item?.tripId ? String(item.tripId) : null;
+  const relatedRideGroup = tripId ? rideGroupsByTripId.get(tripId) ?? null : null;
+  const timestamp = item?.timestamp ?? item?.updatedAt ?? item?.createdAt ?? new Date().toISOString();
+
   return {
-    id: log._id,
-    actionType: log.action,
-    actor: usersById.get(log.actorUserId)?.fullName ?? 'Operations Admin',
-    note: log.metadata?.description ?? '',
-    description: log.metadata?.title ?? log.action,
-    timestamp: log.createdAt,
-    entityType: log.entityType,
-    entityId: log.entityId,
-    rideGroupId: relatedRideGroup?.id ?? null,
-    tripId: log.entityType === 'trip' ? log.entityId : relatedRideGroup?.tripId ?? null,
+    id: String(item?.id ?? `audit-${index}`),
+    actionType: item?.actionType ?? item?.eventType ?? 'operations_update',
+    actor: item?.actor ?? 'Operations',
+    note: item?.note ?? '',
+    description: item?.description ?? item?.title ?? 'Operational update',
+    timestamp,
+    entityType: item?.entityType ?? 'trip',
+    entityId: item?.entityId ?? tripId ?? relatedRideGroup?.tripId ?? null,
+    rideGroupId: item?.rideGroupId ?? relatedRideGroup?.id ?? null,
+    tripId: tripId ?? relatedRideGroup?.tripId ?? null,
   };
 }
 
@@ -351,9 +626,9 @@ function buildAvailableVehicleOptions(vehicles, rideGroups, currentRideGroupId =
 }
 
 export function OperationsProvider({ children }) {
-  const [rideGroups, setRideGroups] = useState(initialRideGroups);
-  const [alerts, setAlerts] = useState(initialAlerts);
-  const [activity, setActivity] = useState(initialActivity);
+  const [rideGroups, setRideGroups] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [activity, setActivity] = useState([]);
   const [backendOverview, setBackendOverview] = useState(null);
   const [backendOverviewState, setBackendOverviewState] = useState({ status: 'idle', error: '' });
   const [backendConflicts, setBackendConflicts] = useState([]);
@@ -361,10 +636,7 @@ export function OperationsProvider({ children }) {
   const [conflictIntelZones, setConflictIntelZones] = useState([]);
   const [conflictIntelSummary, setConflictIntelSummary] = useState(null);
   const [conflictIntelState, setConflictIntelState] = useState({ status: 'idle', error: '' });
-  const [auditEntries, setAuditEntries] = useState(() => {
-    const rideGroupsByTripId = new Map(initialRideGroups.map((group) => [group.tripId, group]));
-    return initialAuditLogs.map((log) => createAuditEntry(log, new Map(mockUsers.map((user) => [user._id, user])), rideGroupsByTripId));
-  });
+  const [auditEntries, setAuditEntries] = useState([]);
   const [selectedRideGroupId, setSelectedRideGroupId] = useState(null);
   const [selectedAlertId, setSelectedAlertId] = useState(null);
   const [selectedMapItem, setSelectedMapItem] = useState(null);
@@ -379,6 +651,83 @@ export function OperationsProvider({ children }) {
     status: 'All',
   });
   const [confirmation, setConfirmation] = useState(null);
+  const [alertsDataState, setAlertsDataState] = useState({ status: 'idle', error: '' });
+  const backendFeedRideGroups = useMemo(() => (
+    Array.isArray(backendOverview?.feeds?.rideGroups)
+      ? backendOverview.feeds.rideGroups.map(normalizeBackendRideGroup).filter(Boolean)
+      : []
+  ), [backendOverview]);
+  const backendFeedDrivers = useMemo(() => (
+    Array.isArray(backendOverview?.feeds?.drivers)
+      ? backendOverview.feeds.drivers.map(normalizeBackendDriver).filter(Boolean)
+      : []
+  ), [backendOverview]);
+  const backendFeedVehicles = useMemo(() => (
+    Array.isArray(backendOverview?.feeds?.vehicles)
+      ? backendOverview.feeds.vehicles.map(normalizeBackendVehicle).filter(Boolean)
+      : []
+  ), [backendOverview]);
+  const backendFeedActivity = useMemo(() => (
+    Array.isArray(backendOverview?.feeds?.activity)
+      ? backendOverview.feeds.activity.map(mapBackendActivityItem)
+      : []
+  ), [backendOverview]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadDatabaseAlerts() {
+      setAlertsDataState({ status: 'loading', error: '' });
+      try {
+        const [incidentsResponse, conflictZonesResponse] = await Promise.all([
+          apiFetch('/api/incidents/public', { auth: false }),
+          apiFetch('/api/conflict/zones', { auth: false }),
+        ]);
+
+        if (cancelled) return;
+
+        const rideGroupIdByTripId = new Map(
+          backendFeedRideGroups
+            .filter((group) => group.tripId && group.id)
+            .map((group) => [String(group.tripId), String(group.id)]),
+        );
+        const zoneNameById = new Map(
+          (Array.isArray(backendOverview?.map?.zones) ? backendOverview.map.zones : [])
+            .filter((zone) => zone?.id)
+            .map((zone) => [String(zone.id), zone.name ?? 'Unassigned zone']),
+        );
+
+        const incidentAlerts = Array.isArray(incidentsResponse)
+          ? incidentsResponse.map((incident, index) => mapIncidentToAlert(incident, index, rideGroupIdByTripId, zoneNameById))
+          : [];
+
+        const conflictAlerts = Array.isArray(conflictZonesResponse?.zones)
+          ? conflictZonesResponse.zones
+            .filter((zone) => ['red', 'orange'].includes(String(zone?.riskLevel ?? '').toLowerCase()))
+            .map(mapConflictZoneToAlert)
+          : [];
+
+        const liveAlerts = [...incidentAlerts, ...conflictAlerts]
+          .sort(byAlertPriority);
+
+        setAlerts(liveAlerts);
+
+        setAlertsDataState({ status: 'ready', error: '' });
+      } catch (error) {
+        if (cancelled) return;
+        console.warn('Unable to load live alerts from database-backed endpoints.', error);
+        setAlertsDataState({ status: 'error', error: error?.message ?? 'Alert feed unavailable' });
+      }
+    }
+
+    loadDatabaseAlerts();
+    const intervalId = window.setInterval(loadDatabaseAlerts, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [backendFeedRideGroups]);
 
   useEffect(() => {
     let cancelled = false;
@@ -409,6 +758,29 @@ export function OperationsProvider({ children }) {
       window.clearInterval(intervalId);
     };
   }, []);
+
+  useEffect(() => {
+    setRideGroups(backendFeedRideGroups);
+
+    const activityItems = backendFeedActivity.length
+      ? backendFeedActivity
+      : buildFallbackActivity(backendFeedRideGroups);
+
+    setActivity(activityItems.map((item) => ({
+      id: item.id,
+      time: item.time,
+      title: item.title,
+      description: item.description,
+      meta: item.meta,
+    })));
+
+    const rideGroupsByTripId = new Map(
+      backendFeedRideGroups
+        .filter((group) => group.tripId)
+        .map((group) => [String(group.tripId), group]),
+    );
+    setAuditEntries(activityItems.map((item, index) => createAuditEntry(item, rideGroupsByTripId, index)));
+  }, [backendFeedActivity, backendFeedRideGroups]);
 
   useEffect(() => {
     let cancelled = false;
@@ -474,27 +846,55 @@ export function OperationsProvider({ children }) {
     };
   }, []);
 
-  const usersById = useMemo(() => new Map(mockUsers.map((user) => [user._id, user])), []);
-  const vehiclesById = useMemo(() => new Map(mockVehicles.map((vehicle) => [vehicle._id, vehicle])), []);
-
-  const driverContextMap = useMemo(
-    () => new Map(driverContexts.map((driver) => [driver.unitId, driver])),
-    [],
+  const usersById = useMemo(() => new Map(
+    backendFeedDrivers
+      .filter((driver) => driver.userId)
+      .map((driver) => [driver.userId, {
+        _id: driver.userId,
+        fullName: driver.displayName ?? `Driver ${String(driver.userId).slice(-4).toUpperCase()}`,
+      }]),
+  ), [backendFeedDrivers]);
+  const vehiclesById = useMemo(
+    () => new Map(backendFeedVehicles.map((vehicle) => [vehicle._id, vehicle])),
+    [backendFeedVehicles],
   );
 
-  const decisionDrivers = useMemo(() => rawDrivers.map((driver) => {
-    const driverContext = driverContexts.find((context) => (
-      context.unitId === `Unit ${driver.vehicleId?.split('-')[1]?.toUpperCase()}`
-      || context.displayName === driver.schemaSnapshot?.driverUser?.fullName
-    )) ?? null;
+  const driverContextMap = useMemo(() => {
+    const rideGroupByDriverId = new Map(
+      rideGroups
+        .filter((group) => group.schemaRefs?.driverUserId)
+        .map((group) => [String(group.schemaRefs.driverUserId), group]),
+    );
+
+    return new Map(
+      backendFeedDrivers
+        .map((driver) => {
+          const assignedRideGroup = rideGroupByDriverId.get(String(driver.userId)) ?? null;
+          return {
+            unitId: driver.unitId,
+            displayName: driver.displayName,
+            operationalState: driver.operationalState ?? formatDriverStatusLabel(driver.status),
+            lastUpdated: driver.updatedAt,
+            quickNote: driver.notes ?? '',
+            zone: assignedRideGroup?.zone ?? 'Unassigned zone',
+            issueState: deriveDriverIssueState(driver),
+          };
+        })
+        .filter((driverContext) => driverContext.unitId)
+        .map((driverContext) => [driverContext.unitId, driverContext]),
+    );
+  }, [backendFeedDrivers, rideGroups]);
+
+  const decisionDrivers = useMemo(() => backendFeedDrivers.map((driver) => {
+    const driverContext = driverContextMap.get(driver.unitId) ?? null;
 
     return {
       ...driver,
-      operationalState: driverContext?.operationalState ?? driver.status,
-      unitId: driverContext?.unitId ?? null,
-      displayName: driverContext?.displayName ?? null,
+      operationalState: driverContext?.operationalState ?? driver.operationalState ?? formatDriverStatusLabel(driver.status),
+      unitId: driver.unitId ?? driverContext?.unitId ?? null,
+      displayName: driver.displayName ?? driverContext?.displayName ?? null,
     };
-  }), []);
+  }), [backendFeedDrivers, driverContextMap]);
 
   const rideGroupsWithRelations = useMemo(() => rideGroups.map((group) => ({
     ...group,
@@ -556,8 +956,8 @@ export function OperationsProvider({ children }) {
   );
 
   const availableVehicleOptions = useMemo(
-    () => buildAvailableVehicleOptions(mockVehicles, rideGroupOperationalViews, selectedRideGroup?.id ?? null),
-    [rideGroupOperationalViews, selectedRideGroup],
+    () => buildAvailableVehicleOptions(backendFeedVehicles, rideGroupOperationalViews, selectedRideGroup?.id ?? null),
+    [backendFeedVehicles, rideGroupOperationalViews, selectedRideGroup],
   );
 
   const dashboardStats = useMemo(() => {
@@ -684,8 +1084,8 @@ export function OperationsProvider({ children }) {
       const backendViewport = backendOverview.map.viewport ?? null;
       const conflictViewport = deriveConflictMapViewport(conflictIntelZones);
       return {
-        center: conflictViewport?.center ?? backendViewport?.center ?? liveMapData.center,
-        zoom: conflictViewport ? 6 : (backendViewport ? 11 : liveMapData.zoom),
+        center: conflictViewport?.center ?? backendViewport?.center ?? DEFAULT_LIVE_MAP_DATA.center,
+        zoom: conflictViewport ? 6 : (backendViewport ? 11 : DEFAULT_LIVE_MAP_DATA.zoom),
         bounds: conflictViewport?.bounds ?? backendViewport?.bounds ?? null,
         rideGroups: Array.isArray(backendOverview.map.rideGroups) ? backendOverview.map.rideGroups : [],
         drivers: Array.isArray(backendOverview.map.drivers) ? backendOverview.map.drivers : [],
@@ -701,28 +1101,28 @@ export function OperationsProvider({ children }) {
     const rideGroupMap = new Map(rideGroupOperationalViews.map((group) => [group.id, group]));
     const alertMap = new Map(alertsWithDecisionSupport.map((alert) => [alert.id, alert]));
 
-    const resolvedRideGroups = liveMapData.mapRideGroups.map((item) => ({
+    const resolvedRideGroups = DEFAULT_LIVE_MAP_DATA.mapRideGroups.map((item) => ({
       ...item,
       rideGroup: rideGroupMap.get(item.id),
     })).filter((item) => item.rideGroup);
 
-    const resolvedDrivers = liveMapData.mapDrivers.map((item) => ({
+    const resolvedDrivers = DEFAULT_LIVE_MAP_DATA.mapDrivers.map((item) => ({
       ...item,
       rideGroup: rideGroupMap.get(item.assignedRideGroupId) ?? null,
     }));
 
-    const resolvedPickupPoints = liveMapData.mapPickupPoints.map((item) => ({
+    const resolvedPickupPoints = DEFAULT_LIVE_MAP_DATA.mapPickupPoints.map((item) => ({
       ...item,
       rideGroups: item.activeRideGroupIds.map((id) => rideGroupMap.get(id)).filter(Boolean),
     }));
 
-    const resolvedZones = liveMapData.mapZones.map((item) => ({
+    const resolvedZones = DEFAULT_LIVE_MAP_DATA.mapZones.map((item) => ({
       ...item,
       rideGroups: item.affectedRideGroupIds.map((id) => rideGroupMap.get(id)).filter(Boolean),
       alerts: item.relatedAlertIds.map((id) => alertMap.get(id)).filter(Boolean),
     }));
 
-    const resolvedAlertAreas = liveMapData.mapAlertAreas.map((item) => ({
+    const resolvedAlertAreas = DEFAULT_LIVE_MAP_DATA.mapAlertAreas.map((item) => ({
       ...item,
       alert: alertMap.get(item.alertId) ?? null,
       rideGroup: item.relatedRideGroupId ? rideGroupMap.get(item.relatedRideGroupId) ?? null : null,
@@ -740,8 +1140,8 @@ export function OperationsProvider({ children }) {
     const conflictViewport = deriveConflictMapViewport(resolvedConflictZones);
 
     return {
-      center: conflictViewport?.center ?? liveMapData.center,
-      zoom: conflictViewport ? 6 : liveMapData.zoom,
+      center: conflictViewport?.center ?? DEFAULT_LIVE_MAP_DATA.center,
+      zoom: conflictViewport ? 6 : DEFAULT_LIVE_MAP_DATA.zoom,
       bounds: conflictViewport?.bounds ?? null,
       rideGroups: resolvedRideGroups,
       drivers: resolvedDrivers,
@@ -750,7 +1150,7 @@ export function OperationsProvider({ children }) {
       conflictZones: resolvedConflictZones,
       conflictCountries,
       alertAreas: resolvedAlertAreas,
-      sceneMode: conflictIntelState.status === 'ready' && conflictIntelZones.length > 0 ? 'hybrid-operations' : 'mock-operations',
+      sceneMode: conflictIntelState.status === 'ready' && conflictIntelZones.length > 0 ? 'hybrid-operations' : 'fallback-operations',
     };
   }, [alertsWithDecisionSupport, backendOverview, conflictIntelState.status, conflictIntelZones, rideGroupOperationalViews]);
 
@@ -1326,7 +1726,7 @@ export function OperationsProvider({ children }) {
     if (action === 'Cancel Group') {
       setConfirmation({
         title: `Cancel ${rideGroupId}?`,
-        description: 'This mock action removes the group from active monitoring and marks the operational record as cancelled.',
+        description: 'This action removes the group from active monitoring and marks the operational record as cancelled.',
         confirmLabel: 'Cancel Group',
         onConfirm: () => {
           runRideGroupAction(action, rideGroupId);
@@ -1393,6 +1793,7 @@ export function OperationsProvider({ children }) {
     availableVehicleOptions,
     auditEntries,
     conflictSyncState,
+    alertsDataState,
     dashboardStats,
     dashboardRideGroups,
     dashboardAlerts,
@@ -1443,6 +1844,7 @@ export function OperationsProvider({ children }) {
     availableVehicleOptions,
     auditEntries,
     conflictSyncState,
+    alertsDataState,
     rideGroupSummaries,
     alertSummaries,
     rideGroups,

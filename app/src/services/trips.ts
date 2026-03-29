@@ -22,6 +22,7 @@ export interface CreatedTrip {
 export interface AvailableTrip {
   _id: string;
   pickup_loc: { coordinates: [number, number] };
+  dropoff_loc?: { coordinates: [number, number] };
   passengers: number;
   accessibility_needs?: string;
   notes?: string;

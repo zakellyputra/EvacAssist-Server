@@ -8,6 +8,7 @@ export interface TripMapMarker {
   title: string;
   description?: string;
   coordinate: { latitude: number; longitude: number };
+  pinColor?: string;
 }
 
 interface Props {
@@ -49,6 +50,17 @@ export default function EvacMap({
   }, [userLocation]);
 
   useEffect(() => {
+    if (routePath.length >= 2 && mapRef.current) {
+      mapRef.current.fitToCoordinates(routePath, {
+        edgePadding: { top: 80, right: 60, bottom: 200, left: 60 },
+        animated: true,
+      });
+      return;
+    }
+  }, [routePath]);
+
+  useEffect(() => {
+    if (routePath.length >= 2) return;
     if (!focusedLocation || !mapRef.current) return;
     mapRef.current.animateToRegion(
       {
@@ -59,7 +71,7 @@ export default function EvacMap({
       },
       700
     );
-  }, [focusedLocation]);
+  }, [focusedLocation, routePath.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -167,7 +179,7 @@ export default function EvacMap({
             coordinate={marker.coordinate}
             title={marker.title}
             description={marker.description}
-            pinColor="#1565C0"
+            pinColor={marker.pinColor ?? '#1565C0'}
           />
         ))}
 

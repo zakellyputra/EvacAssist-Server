@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Button, TextInput, Text, SegmentedButtons, Snackbar, Card } from 'react-native-paper';
 import * as Location from 'expo-location';
@@ -19,6 +19,8 @@ export default function RequestScreen() {
   const [success, setSuccess] = useState('');
   const [isOnline, setIsOnline] = useState(true);
   const [pinMode, setPinMode] = useState<'pickup' | 'dropoff'>('pickup');
+  const mapRef = useRef<MapView | null>(null);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [dropoffCoords, setDropoffCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [dropoffDetails, setDropoffDetails] = useState('');
@@ -39,13 +41,28 @@ export default function RequestScreen() {
       }
 
       const loc = await Location.getCurrentPositionAsync({});
-      setPickupCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      const currentCoords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+      setUserCoords(currentCoords);
+      setPickupCoords(currentCoords);
       setDropoffCoords((current) => current ?? {
-        lat: loc.coords.latitude + 0.01,
-        lng: loc.coords.longitude + 0.01,
+        lat: currentCoords.lat,
+        lng: currentCoords.lng,
       });
     })();
   }, []);
+
+  React.useEffect(() => {
+    if (pinMode !== 'dropoff' || !userCoords || !mapRef.current) return;
+    mapRef.current.animateToRegion(
+      {
+        latitude: userCoords.lat,
+        longitude: userCoords.lng,
+        latitudeDelta: 0.04,
+        longitudeDelta: 0.04,
+      },
+      300,
+    );
+  }, [pinMode, userCoords]);
 
   async function submitRequest() {
     setLoading(true);
@@ -151,6 +168,7 @@ export default function RequestScreen() {
           />
           <View style={styles.mapWrap}>
             <MapView
+              ref={mapRef}
               style={styles.map}
               provider={PROVIDER_DEFAULT}
               onPress={(event) => {

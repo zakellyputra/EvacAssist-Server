@@ -7,7 +7,6 @@ import Panel from '../components/Panel';
 import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
 import ZoneDrawer from '../components/ZoneDrawer';
-import { mockZones } from '../mock/zones';
 import { formatOccupancy } from '../utils/formatters';
 
 function normalizeZone(zone) {
@@ -39,19 +38,13 @@ export default function ZonesPage() {
       setLoading(true);
       setError('');
       try {
-        const data = await apiFetch('/api/zones');
+        const data = await apiFetch('/api/zones/public', { auth: false });
         if (cancelled) return;
-        const normalized = data.map(normalizeZone);
-        if (normalized.length) {
-          setZones(normalized);
-        } else {
-          setZones(mockZones);
-          setError('No live zones were found, so mock fallback zone cards are being displayed.');
-        }
-      } catch {
+        setZones(Array.isArray(data) ? data.map(normalizeZone) : []);
+      } catch (loadError) {
         if (cancelled) return;
-        setZones(mockZones);
-        setError('Live zone data was unavailable, so mock fallback zone cards are being displayed.');
+        setZones([]);
+        setError(loadError.message || 'Live zone data is unavailable.');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -118,7 +111,7 @@ export default function ZonesPage() {
       <section className="stats-grid stats-grid-three">
         <StatCard label="Safe Zones" value={stats.safe} tone="success" hint="Low-risk areas currently visible" />
         <StatCard label="Zones At Risk" value={stats.atRisk} tone="danger" hint="Warnings, danger zones, or blocked areas" />
-        <StatCard label="Occupancy Tracked" value={stats.occupancyKnown} tone="info" hint="Zones with capacity placeholders available" />
+        <StatCard label="Occupancy Tracked" value={stats.occupancyKnown} tone="info" hint="Zones with live capacity telemetry available" />
       </section>
 
       <section className="zones-layout">
@@ -151,7 +144,7 @@ export default function ZonesPage() {
             </form>
           </Panel>
 
-          <Panel title="Zone Inventory" subtitle="Monitor risk state and occupancy placeholders">
+          <Panel title="Zone Inventory" subtitle="Monitor live risk state and occupancy">
             {loading ? (
               <LoadingState label="Loading zones..." />
             ) : (
@@ -197,7 +190,7 @@ export default function ZonesPage() {
                 </div>
                 <div className="detail-section">
                   <span className="detail-label">Source</span>
-                  <strong>{selectedZone.source ?? 'Operator / Placeholder'}</strong>
+                  <strong>{selectedZone.source ?? 'Operator'}</strong>
                 </div>
                 <button className="button button-secondary" onClick={() => handleDelete(selectedZone._id)}>
                   Delete Zone
