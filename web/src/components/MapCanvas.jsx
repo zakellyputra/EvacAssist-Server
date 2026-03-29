@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { formatPriorityValue, getPriorityBand } from '../utils/priorityDisplay';
 
 function buildFeatureCollection(features) {
   return {
@@ -186,8 +187,14 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       const el = document.createElement('button');
       el.type = 'button';
       const selectedId = selectedRef.current?.item?.id ?? selectedRef.current?.id;
-      el.className = `map-marker-node map-marker-node-${entry.type}${selectedRef.current?.type === entry.type && selectedId === entry.id ? ' is-selected' : ''}`;
-      el.innerHTML = `<span>${entry.label}</span>`;
+      const priorityBand = entry.type === 'rideGroup' ? getPriorityBand(entry.rideGroup?.priorityScore) : null;
+      el.className = `map-marker-node map-marker-node-${entry.type}${priorityBand ? ` map-marker-priority-${priorityBand.markerClass}` : ''}${selectedRef.current?.type === entry.type && selectedId === entry.id ? ' is-selected' : ''}`;
+      el.innerHTML = entry.type === 'rideGroup'
+        ? `<span>${entry.label}</span><strong>${formatPriorityValue(entry.rideGroup?.priorityScore)}</strong>`
+        : `<span>${entry.label}</span>`;
+      el.setAttribute('aria-label', entry.type === 'rideGroup'
+        ? `${entry.label} priority ${formatPriorityValue(entry.rideGroup?.priorityScore)}`
+        : entry.label);
       el.addEventListener('click', () => onSelect(entry.type, entry.id));
 
       const marker = new maplibregl.Marker({ element: el, anchor: 'center' })

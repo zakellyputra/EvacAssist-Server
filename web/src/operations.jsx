@@ -1,5 +1,14 @@
-import { createContext, useContext, useMemo, useState } from 'react';
-import { driverContexts, initialActivity, initialAlerts, initialRideGroups, liveMapData, operationsMap } from './mock/operations';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { apiFetch } from './api';
+import { auditLogs as initialAuditLogs, driverContexts, drivers as rawDrivers, initialActivity, initialAlerts, initialRideGroups, liveMapData, operationsMap, users as mockUsers, vehicles as mockVehicles } from './mock/operations';
+import {
+  getConflictSeverityRank,
+  getHighestConflictSeverity,
+  groupConflictsByTrip,
+  isAssignmentConflictType,
+  sortConflictsByUrgency,
+} from './utils/conflictDisplay';
+import { buildRideGroupTimeline, evaluateAlert, evaluateRideGroup } from './utils/decisionEngine';
 
 const OperationsContext = createContext(null);
 
@@ -27,10 +36,203 @@ function getReopenedStatus(group) {
   return 'Open';
 }
 
+function formatDriverAssignment(driverContext, rideGroup) {
+  const driverName = driverContext?.displayName ?? rideGroup?.schemaSnapshot?.driverUser?.fullName ?? null;
+  const unitId = driverContext?.unitId ?? rideGroup?.driverUnitId ?? null;
+  const vehicleLabel = rideGroup?.schemaSnapshot?.vehicle?.label ?? rideGroup?.vehicle ?? null;
+
+  return {
+    name: driverName,
+    unitId,
+    status: driverContext?.operationalState ?? 'No driver assigned',
+    vehicleLabel,
+    userId: rideGroup?.schemaRefs?.driverUserId ?? rideGroup?.driverUserId ?? null,
+    vehicleId: rideGroup?.schemaRefs?.vehicleId ?? rideGroup?.vehicleId ?? null,
+    assigned: Boolean(rideGroup?.schemaRefs?.driverUserId ?? rideGroup?.driverUserId),
+  };
+}
+
+function deriveReadinessState(rideGroup, activeIssues, driverAssignment) {
+  if (!rideGroup) return 'PENDING';
+  if (rideGroup.schemaStatus?.request === 'cancelled' || rideGroup.schemaStatus?.trip === 'cancelled') return 'BLOCKED';
+  if (rideGroup.schemaStatus?.request === 'completed' || rideGroup.schemaStatus?.trip === 'completed' || rideGroup.schemaStatus?.trip === 'in_transit') return 'READY';
+  if (!driverAssignment.assigned) return 'BLOCKED';
+  if (activeIssues.some((issue) => issue.status === 'In Review')) return 'FLAGGED';
+  if (activeIssues.some((issue) => issue.status === 'Open')) return 'BLOCKED';
+
+  const readinessEstimate = rideGroup.departureReadinessDetail?.readinessEstimate?.toLowerCase() ?? '';
+  if (readinessEstimate.includes('ready') || readinessEstimate.includes('departed')) return 'READY';
+  return 'PENDING';
+}
+
+function deriveActionState(rideGroup, readinessState, activeIssues) {
+  if (!rideGroup) return 'PENDING';
+  if (rideGroup.status === 'Flagged' || activeIssues.some((issue) => issue.status === 'In Review')) return 'FLAGGED';
+  if (rideGroup.schemaStatus?.request === 'cancelled' || rideGroup.schemaStatus?.trip === 'cancelled') return 'BLOCKED';
+  if (activeIssues.some((issue) => issue.status === 'Open') || !rideGroup.schemaRefs?.driverUserId) return 'BLOCKED';
+  if (readinessState === 'READY') return 'READY';
+  return 'PENDING';
+}
+
+function mapRideGroupToOperationalViewModel(rideGroup, alerts, drivers, auditEntries, conflicts, conflictDataStatus) {
+  const linkedAlerts = (Array.isArray(alerts) ? alerts : []).filter((alert) => (rideGroup.linkedAlertIds ?? []).includes(alert.id));
+  const activeAlerts = linkedAlerts.filter((alert) => alert.status !== 'Resolved');
+  const driverAssignment = formatDriverAssignment(rideGroup.driverContext, rideGroup);
+  const driverIssue = rideGroup.driverContext?.issueState
+    ? {
+      id: `${rideGroup.id}-driver-issue`,
+      label: rideGroup.driverContext.issueState,
+      severity: 'driver',
+      status: driverAssignment.assigned ? 'Monitoring' : 'Open',
+      source: 'driver',
+    }
+    : null;
+  const activeIssues = [
+    ...activeAlerts.map((alert) => ({
+      id: alert.id,
+      label: alert.title,
+      severity: alert.severity,
+      status: alert.status,
+      source: 'incident',
+    })),
+    ...(driverIssue ? [driverIssue] : []),
+  ];
+  const readinessState = deriveReadinessState(rideGroup, activeIssues, driverAssignment);
+  const actionState = deriveActionState(rideGroup, readinessState, activeIssues);
+  const capacity = rideGroup.capacity ?? rideGroup.schemaSnapshot?.vehicle?.seatCapacity ?? null;
+  const riderCount = rideGroup.ridersJoined ?? rideGroup.schemaSnapshot?.request?.peopleCount ?? 0;
+  const decision = evaluateRideGroup({
+    ...rideGroup,
+    driverAssignment,
+    readinessState,
+    actionState,
+    assignedRiderCount: riderCount,
+    capacity,
+  }, linkedAlerts, drivers);
+  const flagged = Boolean(
+    rideGroup.flagged
+    || rideGroup.status === 'Flagged'
+    || decision.autoFlags.length > 0
+    || activeIssues.some((issue) => issue.status === 'In Review')
+  );
+  const auditTrail = (Array.isArray(auditEntries) ? auditEntries : []).filter((entry) => (
+    entry.tripId === rideGroup.tripId || entry.rideGroupId === rideGroup.id
+  )).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  const activeConflicts = Array.isArray(conflicts) ? [...conflicts].sort(sortConflictsByUrgency) : [];
+  const blockingConflictCount = activeConflicts.filter((conflict) => conflict.blocking).length;
+  const highestConflictSeverity = getHighestConflictSeverity(activeConflicts);
+  const hasAssignmentConflict = activeConflicts.some((conflict) => isAssignmentConflictType(conflict.type));
+
+  // Temporary adapter: DBSchema defines trip/request/driver/vehicle/incident records, not a single
+  // ride-detail document. Phase 5 components still expect summary/readiness/manifest notes, so we
+  // normalize the schema-backed relations into one operational view model here.
+  return {
+    ...rideGroup,
+    linkedAlerts,
+    activeIssues,
+    driverAssignment,
+    flagged,
+    autoFlags: decision.autoFlags,
+    priorityScore: decision.priorityScore,
+    recommendations: decision.recommendations,
+    auditTrail,
+    timeline: buildRideGroupTimeline({
+      ...rideGroup,
+      driverAssignment,
+      flagged,
+    }, linkedAlerts),
+    readinessState,
+    actionState,
+    conflicts: activeConflicts,
+    activeConflictCount: activeConflicts.length,
+    blockingConflictCount,
+    highestConflictSeverity,
+    hasActiveConflicts: activeConflicts.length > 0,
+    hasBlockingConflicts: blockingConflictCount > 0,
+    hasAssignmentConflict,
+    conflictDataStatus,
+    lifecycleStatus: rideGroup.status ?? 'Open',
+    assignedRiderCount: riderCount,
+    capacity,
+    ridersJoined: riderCount,
+    summary: rideGroup.summary ?? `Trip ${rideGroup.id} is active in ${rideGroup.zone ?? 'the assigned zone'}.`,
+    departureReadiness: rideGroup.departureReadiness ?? 'Readiness data unavailable',
+    departureReadinessDetail: rideGroup.departureReadinessDetail
+      ? {
+        ...rideGroup.departureReadinessDetail,
+        driverAssigned: rideGroup.departureReadinessDetail.driverAssigned ?? (driverAssignment.assigned ? 'Yes' : 'No'),
+        riderCheckIn: rideGroup.departureReadinessDetail.riderCheckIn ?? `${riderCount} of ${capacity ?? riderCount} assigned`,
+        readinessEstimate: rideGroup.departureReadinessDetail.readinessEstimate ?? readinessState,
+      }
+      : null,
+    riders: Array.isArray(rideGroup.riders) ? rideGroup.riders : [],
+    routeNotes: Array.isArray(rideGroup.routeNotes) ? rideGroup.routeNotes : [],
+    pickupIssues: Array.isArray(rideGroup.pickupIssues) ? rideGroup.pickupIssues : [],
+  };
+}
+
+function createAuditEntry(log, usersById, rideGroupsByTripId) {
+  const relatedRideGroup = rideGroupsByTripId.get(log.entityId) ?? null;
+  return {
+    id: log._id,
+    actionType: log.action,
+    actor: usersById.get(log.actorUserId)?.fullName ?? 'Operations Admin',
+    note: log.metadata?.description ?? '',
+    description: log.metadata?.title ?? log.action,
+    timestamp: log.createdAt,
+    entityType: log.entityType,
+    entityId: log.entityId,
+    rideGroupId: relatedRideGroup?.id ?? null,
+    tripId: log.entityType === 'trip' ? log.entityId : relatedRideGroup?.tripId ?? null,
+  };
+}
+
+function buildAvailableDriverOptions(drivers, rideGroups, currentRideGroupId = null) {
+  const activeAssignments = new Map(
+    rideGroups
+      .filter((group) => !['Completed', 'Cancelled'].includes(group.status))
+      .filter((group) => group.driverAssignment?.userId)
+      .map((group) => [group.driverAssignment.userId, group.id]),
+  );
+
+  return drivers.map((driver) => {
+    const assignedRideGroupId = activeAssignments.get(driver.userId) ?? null;
+    return {
+      ...driver,
+      assignedRideGroupId,
+      isAvailable: !assignedRideGroupId || assignedRideGroupId === currentRideGroupId || driver.status === 'available',
+    };
+  });
+}
+
+function buildAvailableVehicleOptions(vehicles, rideGroups, currentRideGroupId = null) {
+  const activeAssignments = new Map(
+    rideGroups
+      .filter((group) => !['Completed', 'Cancelled'].includes(group.status))
+      .filter((group) => group.schemaRefs?.vehicleId)
+      .map((group) => [group.schemaRefs.vehicleId, group.id]),
+  );
+
+  return vehicles.map((vehicle) => {
+    const assignedRideGroupId = activeAssignments.get(vehicle._id) ?? null;
+    return {
+      ...vehicle,
+      assignedRideGroupId,
+      isAvailable: vehicle.isActive && (!assignedRideGroupId || assignedRideGroupId === currentRideGroupId),
+    };
+  });
+}
+
 export function OperationsProvider({ children }) {
   const [rideGroups, setRideGroups] = useState(initialRideGroups);
   const [alerts, setAlerts] = useState(initialAlerts);
   const [activity, setActivity] = useState(initialActivity);
+  const [backendConflicts, setBackendConflicts] = useState([]);
+  const [conflictSyncState, setConflictSyncState] = useState({ status: 'idle', error: '' });
+  const [auditEntries, setAuditEntries] = useState(() => {
+    const rideGroupsByTripId = new Map(initialRideGroups.map((group) => [group.tripId, group]));
+    return initialAuditLogs.map((log) => createAuditEntry(log, new Map(mockUsers.map((user) => [user._id, user])), rideGroupsByTripId));
+  });
   const [selectedRideGroupId, setSelectedRideGroupId] = useState(null);
   const [selectedAlertId, setSelectedAlertId] = useState(null);
   const [selectedMapItem, setSelectedMapItem] = useState(null);
@@ -45,10 +247,55 @@ export function OperationsProvider({ children }) {
   });
   const [confirmation, setConfirmation] = useState(null);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadConflicts() {
+      setConflictSyncState({ status: 'loading', error: '' });
+      try {
+        const response = await apiFetch('/api/conflicts?status=active');
+        if (cancelled) return;
+        setBackendConflicts(Array.isArray(response?.conflicts) ? response.conflicts : []);
+        setConflictSyncState({ status: 'ready', error: '' });
+      } catch (error) {
+        if (cancelled) return;
+        console.warn('Unable to load backend conflicts for admin overlay.', error);
+        setBackendConflicts([]);
+        setConflictSyncState({
+          status: 'error',
+          error: error?.message ?? 'Conflict details unavailable',
+        });
+      }
+    }
+
+    loadConflicts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const usersById = useMemo(() => new Map(mockUsers.map((user) => [user._id, user])), []);
+  const vehiclesById = useMemo(() => new Map(mockVehicles.map((vehicle) => [vehicle._id, vehicle])), []);
+
   const driverContextMap = useMemo(
     () => new Map(driverContexts.map((driver) => [driver.unitId, driver])),
     [],
   );
+
+  const decisionDrivers = useMemo(() => rawDrivers.map((driver) => {
+    const driverContext = driverContexts.find((context) => (
+      context.unitId === `Unit ${driver.vehicleId?.split('-')[1]?.toUpperCase()}`
+      || context.displayName === driver.schemaSnapshot?.driverUser?.fullName
+    )) ?? null;
+
+    return {
+      ...driver,
+      operationalState: driverContext?.operationalState ?? driver.status,
+      unitId: driverContext?.unitId ?? null,
+      displayName: driverContext?.displayName ?? null,
+    };
+  }), []);
 
   const rideGroupsWithRelations = useMemo(() => rideGroups.map((group) => ({
     ...group,
@@ -66,27 +313,65 @@ export function OperationsProvider({ children }) {
     };
   }), [alerts, driverContextMap, rideGroupsWithRelations]);
 
+  const conflictsByTripId = useMemo(
+    () => groupConflictsByTrip(backendConflicts),
+    [backendConflicts],
+  );
+
+  const rideGroupOperationalViews = useMemo(
+    () => rideGroupsWithRelations.map((group) => mapRideGroupToOperationalViewModel(
+      group,
+      alertsWithRelations,
+      decisionDrivers,
+      auditEntries,
+      conflictsByTripId.get(String(group.tripId)) ?? [],
+      conflictSyncState.status,
+    )),
+    [alertsWithRelations, auditEntries, conflictSyncState.status, conflictsByTripId, decisionDrivers, rideGroupsWithRelations],
+  );
+
+  const alertsWithDecisionSupport = useMemo(() => alertsWithRelations.map((alert) => {
+    const relatedRideGroup = rideGroupOperationalViews.find((group) => group.id === alert.relatedGroupId) ?? null;
+    const decision = evaluateAlert(alert, relatedRideGroup);
+    return {
+      ...alert,
+      relatedRideGroup,
+      priorityScore: decision.priorityScore,
+      recommendations: decision.recommendations,
+    };
+  }), [alertsWithRelations, rideGroupOperationalViews]);
+
   const selectedRideGroup = useMemo(
-    () => rideGroupsWithRelations.find((group) => group.id === selectedRideGroupId) ?? null,
-    [rideGroupsWithRelations, selectedRideGroupId],
+    () => rideGroupOperationalViews.find((group) => group.tripId === selectedRideGroupId) ?? null,
+    [rideGroupOperationalViews, selectedRideGroupId],
   );
 
   const selectedAlert = useMemo(
-    () => alertsWithRelations.find((alert) => alert.id === selectedAlertId) ?? null,
-    [alertsWithRelations, selectedAlertId],
+    () => alertsWithDecisionSupport.find((alert) => alert.id === selectedAlertId) ?? null,
+    [alertsWithDecisionSupport, selectedAlertId],
+  );
+
+  const availableDriverOptions = useMemo(
+    () => buildAvailableDriverOptions(decisionDrivers, rideGroupOperationalViews, selectedRideGroup?.id ?? null),
+    [decisionDrivers, rideGroupOperationalViews, selectedRideGroup],
+  );
+
+  const availableVehicleOptions = useMemo(
+    () => buildAvailableVehicleOptions(mockVehicles, rideGroupOperationalViews, selectedRideGroup?.id ?? null),
+    [rideGroupOperationalViews, selectedRideGroup],
   );
 
   const dashboardStats = useMemo(() => {
-    const activeGroups = rideGroupsWithRelations.filter((group) => !['Completed', 'Cancelled'].includes(group.status));
+    const activeGroups = rideGroupOperationalViews.filter((group) => !['Completed', 'Cancelled'].includes(group.status));
     const openGroups = activeGroups.filter((group) => ['Open', 'Filling'].includes(group.status));
     const flaggedGroups = activeGroups.filter((group) => group.status === 'Flagged' || group.interventionState === 'Needs Review');
-    const criticalAlerts = alertsWithRelations.filter((alert) => alert.status !== 'Resolved' && alert.severity === 'Critical');
+    const criticalAlerts = alertsWithDecisionSupport.filter((alert) => alert.status !== 'Resolved' && alert.severity === 'Critical');
 
     return [
       {
         label: 'Active Ride Groups',
         value: formatCount(activeGroups.length),
-        support: `${activeGroups.length} active across 4 pickup corridors with ${rideGroupsWithRelations.filter((group) => group.status === 'En Route').length} already moving.`,
+        support: `${activeGroups.length} active across 4 pickup corridors with ${rideGroupOperationalViews.filter((group) => group.status === 'En Route').length} already moving.`,
         context: `${openGroups.length} still forming`,
       },
       {
@@ -108,53 +393,71 @@ export function OperationsProvider({ children }) {
         context: `${flaggedGroups.length} groups flagged`,
       },
     ];
-  }, [alertsWithRelations, rideGroupsWithRelations]);
+  }, [alertsWithDecisionSupport, rideGroupOperationalViews]);
 
   const dashboardRideGroups = useMemo(
-    () => [...rideGroupsWithRelations].filter((group) => group.status !== 'Completed').sort(byNewest).slice(0, 7),
-    [rideGroupsWithRelations],
+    () => [...rideGroupOperationalViews].filter((group) => group.status !== 'Completed').sort(byNewest).slice(0, 7),
+    [rideGroupOperationalViews],
   );
 
   const dashboardAlerts = useMemo(
-    () => [...alertsWithRelations].filter((alert) => alert.status !== 'Resolved').sort(byAlertPriority).slice(0, 4),
-    [alertsWithRelations],
+    () => [...alertsWithDecisionSupport].filter((alert) => alert.status !== 'Resolved').sort(byAlertPriority).slice(0, 4),
+    [alertsWithDecisionSupport],
   );
 
   const rideGroupSummaries = useMemo(() => ([
-    { label: 'Total active groups', value: rideGroupsWithRelations.filter((group) => !['Completed', 'Cancelled'].includes(group.status)).length },
-    { label: 'Open groups', value: rideGroupsWithRelations.filter((group) => ['Open', 'Filling'].includes(group.status)).length },
-    { label: 'Full groups', value: rideGroupsWithRelations.filter((group) => group.status === 'Full').length },
-    { label: 'Flagged groups', value: rideGroupsWithRelations.filter((group) => group.status === 'Flagged' || group.interventionState === 'Needs Review').length },
-  ]), [rideGroupsWithRelations]);
+    { label: 'Total active groups', value: rideGroupOperationalViews.filter((group) => !['Completed', 'Cancelled'].includes(group.status)).length },
+    { label: 'Open groups', value: rideGroupOperationalViews.filter((group) => ['Open', 'Filling'].includes(group.status)).length },
+    { label: 'Full groups', value: rideGroupOperationalViews.filter((group) => group.status === 'Full').length },
+    { label: 'Flagged groups', value: rideGroupOperationalViews.filter((group) => group.status === 'Flagged' || group.interventionState === 'Needs Review').length },
+  ]), [rideGroupOperationalViews]);
 
   const alertSummaries = useMemo(() => ([
-    { label: 'Critical alerts', value: alertsWithRelations.filter((alert) => alert.severity === 'Critical' && alert.status !== 'Resolved').length },
-    { label: 'Warnings', value: alertsWithRelations.filter((alert) => alert.severity === 'Warning' && alert.status !== 'Resolved').length },
-    { label: 'Monitoring only', value: alertsWithRelations.filter((alert) => alert.severity === 'Monitoring' && alert.status !== 'Resolved').length },
-    { label: 'Resolved today', value: alertsWithRelations.filter((alert) => alert.status === 'Resolved' || alert.resolvedToday).length },
-  ]), [alertsWithRelations]);
+    { label: 'Critical alerts', value: alertsWithDecisionSupport.filter((alert) => alert.severity === 'Critical' && alert.status !== 'Resolved').length },
+    { label: 'Warnings', value: alertsWithDecisionSupport.filter((alert) => alert.severity === 'Warning' && alert.status !== 'Resolved').length },
+    { label: 'Monitoring only', value: alertsWithDecisionSupport.filter((alert) => alert.severity === 'Monitoring' && alert.status !== 'Resolved').length },
+    { label: 'Resolved today', value: alertsWithDecisionSupport.filter((alert) => alert.status === 'Resolved' || alert.resolvedToday).length },
+  ]), [alertsWithDecisionSupport]);
 
   const driverExceptionSummary = useMemo(() => {
-    const delayedUnits = rideGroupsWithRelations.filter((group) => group.driverContext?.operationalState?.toLowerCase().includes('delayed')).length;
-    const stoppedReportingUnits = rideGroupsWithRelations.filter((group) => group.driverContext?.operationalState?.toLowerCase().includes('stopped reporting')).length;
-    const awaitingReassignment = alertsWithRelations.filter((alert) => alert.title.toLowerCase().includes('driver reassignment')).length;
-    const awaitingDepartureReadiness = rideGroupsWithRelations.filter((group) => !['Departed', 'Ready on dispatch release'].includes(group.departureReadinessDetail?.readinessEstimate) && !['Completed', 'Cancelled', 'En Route'].includes(group.status)).length;
+    const delayedUnits = rideGroupOperationalViews.filter((group) => group.driverContext?.operationalState?.toLowerCase().includes('delayed')).length;
+    const stoppedReportingUnits = rideGroupOperationalViews.filter((group) => group.driverContext?.operationalState?.toLowerCase().includes('stopped reporting')).length;
+    const awaitingReassignment = alertsWithDecisionSupport.filter((alert) => alert.title.toLowerCase().includes('driver reassignment')).length;
+    const awaitingDepartureReadiness = rideGroupOperationalViews.filter((group) => !['Departed', 'Ready on dispatch release'].includes(group.departureReadinessDetail?.readinessEstimate) && !['Completed', 'Cancelled', 'En Route'].includes(group.status)).length;
+    const conflictRideGroups = rideGroupOperationalViews
+      .filter((group) => group.hasActiveConflicts)
+      .sort((a, b) => (
+        Number(b.hasBlockingConflicts) - Number(a.hasBlockingConflicts)
+        || getConflictSeverityRank(b.highestConflictSeverity) - getConflictSeverityRank(a.highestConflictSeverity)
+        || (b.activeConflictCount ?? 0) - (a.activeConflictCount ?? 0)
+        || (b.priorityScore ?? 0) - (a.priorityScore ?? 0)
+      ))
+      .slice(0, 3);
+
     return {
       delayedUnits,
       stoppedReportingUnits,
       awaitingReassignment,
       awaitingDepartureReadiness,
-      relatedAlerts: alertsWithRelations
+      conflictRideGroups,
+      relatedAlerts: alertsWithDecisionSupport
         .filter((alert) => alert.assignedDriver || alert.title.toLowerCase().includes('driver'))
         .filter((alert) => alert.status !== 'Resolved')
-        .sort(byAlertPriority)
+        .sort((a, b) => (
+          Number(b.relatedRideGroup?.hasBlockingConflicts) - Number(a.relatedRideGroup?.hasBlockingConflicts)
+          || getConflictSeverityRank(b.relatedRideGroup?.highestConflictSeverity) - getConflictSeverityRank(a.relatedRideGroup?.highestConflictSeverity)
+          || (b.relatedRideGroup?.activeConflictCount ?? 0) - (a.relatedRideGroup?.activeConflictCount ?? 0)
+          || (b.relatedRideGroup?.priorityScore ?? 0) - (a.relatedRideGroup?.priorityScore ?? 0)
+          || (b.priorityScore ?? 0) - (a.priorityScore ?? 0)
+          || byAlertPriority(a, b)
+        ))
         .slice(0, 3),
     };
-  }, [alertsWithRelations, rideGroupsWithRelations]);
+  }, [alertsWithDecisionSupport, rideGroupOperationalViews]);
 
   const liveMapResolved = useMemo(() => {
-    const rideGroupMap = new Map(rideGroupsWithRelations.map((group) => [group.id, group]));
-    const alertMap = new Map(alertsWithRelations.map((alert) => [alert.id, alert]));
+    const rideGroupMap = new Map(rideGroupOperationalViews.map((group) => [group.id, group]));
+    const alertMap = new Map(alertsWithDecisionSupport.map((alert) => [alert.id, alert]));
 
     const resolvedRideGroups = liveMapData.mapRideGroups.map((item) => ({
       ...item,
@@ -192,7 +495,7 @@ export function OperationsProvider({ children }) {
       zones: resolvedZones,
       alertAreas: resolvedAlertAreas,
     };
-  }, [alertsWithRelations, rideGroupsWithRelations]);
+  }, [alertsWithDecisionSupport, rideGroupOperationalViews]);
 
   const filteredLiveMapData = useMemo(() => {
     const zoneMatch = (zoneValue) => mapFilters.zone === 'All' || zoneValue === mapFilters.zone;
@@ -256,9 +559,17 @@ export function OperationsProvider({ children }) {
     return null;
   }, [liveMapResolved, selectedMapItem]);
 
-  function openRideGroup(id) {
+  function openRideGroup(target) {
+    const rideGroup = typeof target === 'object' && target
+      ? rideGroupsWithRelations.find((group) => group.tripId === target.tripId || group.id === target.id)
+      : rideGroupsWithRelations.find((group) => (
+        group.tripId === target
+        || group.requestId === target
+        || group.id === target
+      ));
+    if (!rideGroup) return;
     setSelectedAlertId(null);
-    setSelectedRideGroupId(id);
+    setSelectedRideGroupId(rideGroup.tripId);
   }
 
   function openAlert(id) {
@@ -272,7 +583,7 @@ export function OperationsProvider({ children }) {
       setSelectedMapItem({ type: 'alertArea', id: area.id });
       return;
     }
-    const alert = alertsWithRelations.find((item) => item.id === alertId);
+    const alert = alertsWithDecisionSupport.find((item) => item.id === alertId);
     if (!alert?.relatedZone) return;
     const zone = liveMapResolved.zones.find((item) => item.zone === alert.relatedZone);
     if (zone) setSelectedMapItem({ type: 'zone', id: zone.id });
@@ -333,6 +644,288 @@ export function OperationsProvider({ children }) {
       },
       ...current,
     ].slice(0, 12));
+  }
+
+  function appendAudit({
+    rideGroupId,
+    tripId,
+    actionType,
+    description,
+    note = '',
+    entityType = 'trip',
+    entityId = null,
+    actor = 'Maya Chen',
+  }) {
+    setAuditEntries((current) => [
+      {
+        id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        actionType,
+        actor,
+        note,
+        description,
+        timestamp: new Date().toISOString(),
+        entityType,
+        entityId: entityId ?? tripId ?? rideGroupId,
+        rideGroupId,
+        tripId,
+      },
+      ...current,
+    ]);
+  }
+
+  function updateRideGroupAssignment(rideGroupId, updates) {
+    const rideGroup = rideGroupsWithRelations.find((group) => group.id === rideGroupId);
+    if (!rideGroup) return;
+
+    updateRideGroup(rideGroupId, {
+      ...updates,
+      schemaRefs: {
+        ...rideGroup.schemaRefs,
+        ...(updates.schemaRefs ?? {}),
+      },
+      schemaStatus: {
+        ...rideGroup.schemaStatus,
+        ...(updates.schemaStatus ?? {}),
+      },
+      schemaSnapshot: {
+        ...rideGroup.schemaSnapshot,
+        ...(updates.schemaSnapshot ?? {}),
+      },
+    });
+  }
+
+  function assignRideGroupDriver(rideGroupId, driverUserId, note = '') {
+    const rideGroup = rideGroupsWithRelations.find((group) => group.id === rideGroupId);
+    const driver = decisionDrivers.find((item) => item.userId === driverUserId);
+    if (!rideGroup || !driver) return;
+
+    const driverUser = usersById.get(driverUserId);
+    const vehicle = driver.vehicleId ? vehiclesById.get(driver.vehicleId) ?? null : null;
+    const unitId = driver.unitId ?? (vehicle ? `Unit ${vehicle._id.split('-')[1].toUpperCase()}` : null);
+
+    updateRideGroupAssignment(rideGroupId, {
+      driverUserId,
+      driver: unitId ?? driverUser?.fullName ?? 'Assigned',
+      driverUnitId: unitId,
+      vehicle: rideGroup.vehicleId ? rideGroup.vehicle : (vehicle?.label ?? rideGroup.vehicle),
+      schemaRefs: {
+        driverUserId,
+      },
+      schemaStatus: {
+        driver: 'assigned',
+        trip: 'driver_assigned',
+        request: 'assigned',
+      },
+      schemaSnapshot: {
+        driver: {
+          ...driver,
+          status: 'assigned',
+        },
+        driverUser,
+      },
+      departureReadiness: vehicle
+        ? 'Driver assigned and awaiting final readiness confirmation'
+        : 'Driver assigned, vehicle assignment still required',
+      departureReadinessDetail: {
+        ...rideGroup.departureReadinessDetail,
+        driverAssigned: 'Yes',
+        readinessEstimate: vehicle ? 'Pending final confirmation' : 'Pending vehicle assignment',
+      },
+      summary: `Ride Group ${rideGroupId} now has ${driverUser?.fullName ?? 'an assigned driver'} attached at ${rideGroup.pickupPoint}.`,
+    });
+
+    appendActivity({
+      title: `${rideGroupId} driver assigned`,
+      description: `${driverUser?.fullName ?? 'Assigned driver'} was assigned to the ride group.`,
+      meta: note || `${rideGroup.pickupPoint} · ${rideGroup.zone}`,
+    });
+    appendAudit({
+      rideGroupId,
+      tripId: rideGroup.tripId,
+      actionType: rideGroup.driverAssignment?.assigned ? 'driver_reassigned' : 'driver_assigned',
+      description: `${driverUser?.fullName ?? 'Assigned driver'} ${rideGroup.driverAssignment?.assigned ? 'reassigned to' : 'assigned to'} ${rideGroupId}.`,
+      note,
+    });
+  }
+
+  function assignRideGroupVehicle(rideGroupId, vehicleId, note = '') {
+    const rideGroup = rideGroupsWithRelations.find((group) => group.id === rideGroupId);
+    const vehicle = vehiclesById.get(vehicleId);
+    if (!rideGroup || !vehicle) return;
+
+    updateRideGroupAssignment(rideGroupId, {
+      vehicleId,
+      vehicle: vehicle.label,
+      capacity: vehicle.seatCapacity ?? rideGroup.capacity,
+      schemaRefs: {
+        vehicleId,
+      },
+      schemaSnapshot: {
+        vehicle,
+      },
+      departureReadiness: rideGroup.schemaRefs?.driverUserId
+        ? 'Vehicle assigned and awaiting final readiness confirmation'
+        : 'Vehicle assigned, driver assignment still required',
+      departureReadinessDetail: {
+        ...rideGroup.departureReadinessDetail,
+        readinessEstimate: rideGroup.schemaRefs?.driverUserId ? 'Pending final confirmation' : 'Pending driver assignment',
+      },
+      summary: `Ride Group ${rideGroupId} now has ${vehicle.label} allocated for dispatch from ${rideGroup.pickupPoint}.`,
+    });
+
+    appendActivity({
+      title: `${rideGroupId} vehicle assigned`,
+      description: `${vehicle.label} was assigned to the ride group.`,
+      meta: note || `${rideGroup.pickupPoint} · ${rideGroup.zone}`,
+    });
+    appendAudit({
+      rideGroupId,
+      tripId: rideGroup.tripId,
+      actionType: rideGroup.schemaRefs?.vehicleId ? 'vehicle_reassigned' : 'vehicle_assigned',
+      description: `${vehicle.label} ${rideGroup.schemaRefs?.vehicleId ? 'reassigned to' : 'assigned to'} ${rideGroupId}.`,
+      note,
+    });
+  }
+
+  function resolveRideGroupAlerts(rideGroupId, note = '') {
+    const rideGroup = rideGroupsWithRelations.find((group) => group.id === rideGroupId);
+    if (!rideGroup) return;
+
+    updateAlertsForRideGroup(rideGroupId, (alert) => ({
+      status: 'Resolved',
+      resolvedToday: true,
+    }));
+    appendActivity({
+      title: `${rideGroupId} alerts resolved`,
+      description: `Operator resolved active alerts linked to the ride group.`,
+      meta: note || `${rideGroup.pickupPoint} · ${rideGroup.zone}`,
+    });
+    appendAudit({
+      rideGroupId,
+      tripId: rideGroup.tripId,
+      actionType: 'alert_resolved',
+      description: `Linked alerts were marked resolved for ${rideGroupId}.`,
+      note,
+    });
+  }
+
+  function escalateRideGroupAlerts(rideGroupId, note = '') {
+    const rideGroup = rideGroupsWithRelations.find((group) => group.id === rideGroupId);
+    if (!rideGroup) return;
+
+    updateAlertsForRideGroup(rideGroupId, (alert) => ({
+      status: alert.status === 'Resolved' ? 'Open' : 'In Review',
+    }));
+    appendActivity({
+      title: `${rideGroupId} alerts escalated`,
+      description: `Operator escalated linked alerts for continued review.`,
+      meta: note || `${rideGroup.pickupPoint} · ${rideGroup.zone}`,
+    });
+    appendAudit({
+      rideGroupId,
+      tripId: rideGroup.tripId,
+      actionType: 'alert_escalated',
+      description: `Linked alerts were escalated for ${rideGroupId}.`,
+      note,
+    });
+  }
+
+  function completeRideGroupReadinessCheck(rideGroupId, note = '') {
+    const rideGroup = rideGroupsWithRelations.find((group) => group.id === rideGroupId);
+    if (!rideGroup) return;
+
+    const hasDriver = Boolean(rideGroup.schemaRefs?.driverUserId);
+    const hasVehicle = Boolean(rideGroup.schemaRefs?.vehicleId);
+    const readinessEstimate = hasDriver && hasVehicle ? 'Pending dispatch release' : 'Pending assignment completion';
+
+    updateRideGroupAssignment(rideGroupId, {
+      departureReadiness: hasDriver && hasVehicle ? 'Readiness reviewed by operator' : 'Readiness reviewed; assignments still incomplete',
+      departureReadinessDetail: {
+        ...rideGroup.departureReadinessDetail,
+        driverAssigned: hasDriver ? 'Yes' : 'No',
+        minimumRidersReached: 'Yes',
+        riderCheckIn: `${rideGroup.ridersJoined} of ${rideGroup.capacity} confirmed`,
+        routeAdvisory: 'Operator reviewed active blockers',
+        readinessEstimate,
+      },
+    });
+
+    appendActivity({
+      title: `${rideGroupId} readiness reviewed`,
+      description: `Operator reviewed readiness blockers and updated sub-checks.`,
+      meta: note || `${rideGroup.pickupPoint} · ${rideGroup.zone}`,
+    });
+    appendAudit({
+      rideGroupId,
+      tripId: rideGroup.tripId,
+      actionType: 'readiness_updated',
+      description: `Readiness checks were updated for ${rideGroupId}.`,
+      note,
+    });
+  }
+
+  function reviewRideGroupBlockers(rideGroupId, note = '') {
+    const rideGroup = rideGroupsWithRelations.find((group) => group.id === rideGroupId);
+    if (!rideGroup) return;
+
+    updateRideGroup(rideGroupId, {
+      status: rideGroup.status === 'Flagged' ? rideGroup.status : 'Flagged',
+      interventionState: 'Needs Review',
+      departureReadiness: 'Blocked conditions under operator review',
+    });
+    appendActivity({
+      title: `${rideGroupId} blockers reviewed`,
+      description: `Operator opened a blocker review for the ride group.`,
+      meta: note || `${rideGroup.pickupPoint} · ${rideGroup.zone}`,
+    });
+    appendAudit({
+      rideGroupId,
+      tripId: rideGroup.tripId,
+      actionType: 'blockers_reviewed',
+      description: `Operational blockers were reviewed for ${rideGroupId}.`,
+      note,
+    });
+  }
+
+  function markRideGroupDispatchReady(rideGroupId, note = '') {
+    const rideGroup = rideGroupOperationalViews.find((group) => group.id === rideGroupId);
+    if (!rideGroup) return { ok: false, error: 'Ride group unavailable' };
+
+    const hasDriver = Boolean(rideGroup.driverAssignment?.assigned);
+    const hasVehicle = Boolean(rideGroup.schemaRefs?.vehicleId);
+    const hasCriticalAlert = rideGroup.linkedAlerts?.some((alert) => alert.status !== 'Resolved' && alert.severity === 'Critical');
+    const blocked = rideGroup.readinessState === 'BLOCKED' || rideGroup.actionState === 'BLOCKED';
+
+    if (!hasDriver || !hasVehicle || hasCriticalAlert || blocked) {
+      return { ok: false, error: 'Ride group is not eligible for dispatch readiness yet.' };
+    }
+
+    updateRideGroupAssignment(rideGroupId, {
+      interventionState: 'Monitoring',
+      departureReadiness: 'Ready on dispatch release',
+      departureReadinessDetail: {
+        ...rideGroup.departureReadinessDetail,
+        driverAssigned: 'Yes',
+        minimumRidersReached: 'Yes',
+        riderCheckIn: `${rideGroup.ridersJoined} of ${rideGroup.capacity} confirmed`,
+        readinessEstimate: 'Ready on dispatch release',
+      },
+      summary: `Ride Group ${rideGroupId} is dispatch ready from ${rideGroup.pickupPoint} after operator validation.`,
+    });
+
+    appendActivity({
+      title: `${rideGroupId} marked dispatch ready`,
+      description: `Operator validated assignments and cleared the ride group for dispatch release.`,
+      meta: note || `${rideGroup.pickupPoint} · ${rideGroup.zone}`,
+    });
+    appendAudit({
+      rideGroupId,
+      tripId: rideGroup.tripId,
+      actionType: 'dispatch_ready_marked',
+      description: `${rideGroupId} was marked dispatch ready.`,
+      note,
+    });
+    return { ok: true };
   }
 
   function runRideGroupAction(action, rideGroupId) {
@@ -463,7 +1056,7 @@ export function OperationsProvider({ children }) {
   }
 
   function markAlertStatus(alertId, status) {
-    const alert = alertsWithRelations.find((item) => item.id === alertId);
+    const alert = alertsWithDecisionSupport.find((item) => item.id === alertId);
     updateAlert(alertId, { status, resolvedToday: status === 'Resolved' ? true : undefined });
     if (alert) {
       appendActivity({
@@ -500,12 +1093,17 @@ export function OperationsProvider({ children }) {
     selectedMapItem,
     selectedMapItemData,
     activity,
-    rideGroups: rideGroupsWithRelations,
+    rideGroups: rideGroupOperationalViews,
     rawRideGroups: rideGroups,
-    alerts: alertsWithRelations,
+    alerts: alertsWithDecisionSupport,
     rawAlerts: alerts,
     driverContextMap,
     driverExceptionSummary,
+    rideGroupOperationalViews,
+    availableDriverOptions,
+    availableVehicleOptions,
+    auditEntries,
+    conflictSyncState,
     dashboardStats,
     dashboardRideGroups,
     dashboardAlerts,
@@ -521,20 +1119,27 @@ export function OperationsProvider({ children }) {
     clearMapSelection,
     closeConfirmation,
     requestRideGroupAction,
+    assignRideGroupDriver,
+    assignRideGroupVehicle,
+    resolveRideGroupAlerts,
+    escalateRideGroupAlerts,
+    completeRideGroupReadinessCheck,
+    reviewRideGroupBlockers,
+    markRideGroupDispatchReady,
     markAlertStatus,
     focusMapOnRideGroup,
     openMapRideGroupDetails,
     openMapAlertDetails,
     openAlertOnMap,
     openRelatedRideGroupFromAlert(alertId) {
-      const alert = alertsWithRelations.find((item) => item.id === alertId);
+      const alert = alertsWithDecisionSupport.find((item) => item.id === alertId);
       if (!alert?.relatedGroupId) return;
       openRideGroup(alert.relatedGroupId);
     },
   }), [
     activity,
     alerts,
-    alertsWithRelations,
+    alertsWithDecisionSupport,
     confirmation,
     dashboardAlerts,
     dashboardRideGroups,
@@ -545,10 +1150,15 @@ export function OperationsProvider({ children }) {
     mapFilters,
     driverContextMap,
     driverExceptionSummary,
+    availableDriverOptions,
+    availableVehicleOptions,
+    auditEntries,
+    conflictSyncState,
     rideGroupSummaries,
     alertSummaries,
     rideGroups,
     rideGroupsWithRelations,
+    rideGroupOperationalViews,
     selectedAlert,
     selectedMapItem,
     selectedMapItemData,

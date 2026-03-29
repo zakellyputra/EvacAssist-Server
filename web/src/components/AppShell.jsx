@@ -15,7 +15,7 @@ export default function AppShell({ children }) {
         <TopHeader />
         <main className="app-shell-content">{children}</main>
       </div>
-      {selectedRideGroup ? <RideGroupDetailDrawer rideGroup={selectedRideGroup} onClose={closeDetails} /> : null}
+      {selectedRideGroup ? <RideGroupDetailDrawer rideGroup={selectedRideGroup} open={Boolean(selectedRideGroup)} onClose={closeDetails} /> : null}
       {selectedAlert ? <AlertDetailDrawer alert={selectedAlert} onClose={closeDetails} /> : null}
       {confirmation ? <ConfirmationDialog {...confirmation} onCancel={closeConfirmation} /> : null}
     </div>

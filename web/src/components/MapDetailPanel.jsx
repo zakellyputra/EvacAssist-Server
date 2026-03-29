@@ -4,10 +4,12 @@ import CrossLinkActions from './CrossLinkActions';
 import DepartureReadinessPanel from './DepartureReadinessPanel';
 import DriverContextCard from './DriverContextCard';
 import LinkedAlertsPanel from './LinkedAlertsPanel';
+import PriorityScoreBadge from './PriorityScoreBadge';
 import RelatedEntitiesBlock from './RelatedEntitiesBlock';
 import RideGroupOperationalNotes from './RideGroupOperationalNotes';
 import { useOperations } from '../operations';
 import StatusBadge from './StatusBadge';
+import { formatConflictCount, getConflictSeverityTone } from '../utils/conflictDisplay';
 
 function formatDate(value) {
   return new Intl.DateTimeFormat('en-US', {
@@ -78,10 +80,39 @@ export default function MapDetailPanel({ selected }) {
           <div className="detail-grid">
             <div className="detail-item"><span>Pickup point</span><strong>{rideGroup.pickupPoint}</strong></div>
             <div className="detail-item"><span>Zone</span><strong>{rideGroup.zone}</strong></div>
+            <div className="detail-item"><span>Priority score</span><PriorityScoreBadge score={rideGroup.priorityScore} /></div>
+            <div className="detail-item"><span>Readiness state</span><ActionStateBadge value={rideGroup.readinessState ?? 'PENDING'} /></div>
+            <div className="detail-item"><span>Conflicts</span><strong>{formatConflictCount(rideGroup.activeConflictCount)}</strong></div>
+            <div className="detail-item"><span>Conflict state</span><strong>{rideGroup.hasBlockingConflicts ? 'Blocking conflicts present' : rideGroup.hasActiveConflicts ? 'Non-blocking conflicts present' : 'No active conflicts'}</strong></div>
             <div className="detail-item"><span>Riders / capacity</span><strong>{rideGroup.ridersJoined} / {rideGroup.capacity}</strong></div>
-            <div className="detail-item"><span>Driver</span><strong>{rideGroup.driver}</strong></div>
+            <div className="detail-item"><span>Driver</span><strong>{rideGroup.driverAssignment?.name ?? 'No driver assigned'}</strong></div>
             <div className="detail-item"><span>Status</span><StatusBadge value={rideGroup.status} tone={rideGroup.status === 'Flagged' ? 'strong' : rideGroup.status === 'Open' || rideGroup.status === 'Filling' ? 'muted' : 'default'} /></div>
             <div className="detail-item"><span>Linked alerts</span><strong>{rideGroup.linkedAlertIds.length}</strong></div>
+          </div>
+          <div className="detail-block">
+            <h3>Conflict Summary</h3>
+            {rideGroup.conflictDataStatus === 'loading' || rideGroup.conflictDataStatus === 'idle' ? <p className="empty-copy">Loading conflict data...</p> : null}
+            {rideGroup.conflictDataStatus === 'error' && !rideGroup.hasActiveConflicts ? <p className="empty-copy">Conflict details unavailable</p> : null}
+            {rideGroup.hasActiveConflicts ? (
+              <div className="linked-list">
+                {rideGroup.conflicts.slice(0, 2).map((conflict) => (
+                  <article key={conflict.id} className="linked-entity">
+                    <div>
+                      <strong>{conflict.label}</strong>
+                      <span>{conflict.message ?? 'Conflict details unavailable'}</span>
+                    </div>
+                    <div className="linked-entity-meta">
+                      <StatusBadge
+                        value={conflict.severity.charAt(0).toUpperCase() + conflict.severity.slice(1)}
+                        tone={getConflictSeverityTone(conflict.severity)}
+                      />
+                      <StatusBadge value={conflict.blocking ? 'Blocking' : 'Non-blocking'} tone={conflict.blocking ? 'strong' : 'default'} />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
+            {rideGroup.conflictDataStatus === 'ready' && !rideGroup.hasActiveConflicts ? <p className="empty-copy">No active conflicts</p> : null}
           </div>
           <DriverContextCard driverContext={rideGroup.driverContext} assignedRideGroupId={rideGroup.id} />
           <DepartureReadinessPanel
@@ -233,8 +264,32 @@ export default function MapDetailPanel({ selected }) {
             <div className="detail-item"><span>Affected zone</span><strong>{alert.relatedZone}</strong></div>
             <div className="detail-item"><span>Related ride group</span><strong>{alert.relatedGroupId ?? 'None'}</strong></div>
             <div className="detail-item"><span>Severity</span><StatusBadge value={alert.severity} tone={alert.severityTone} /></div>
+            <div className="detail-item"><span>Ride priority</span>{alert.relatedRideGroup ? <PriorityScoreBadge score={alert.relatedRideGroup.priorityScore} /> : <strong>No linked ride group</strong>}</div>
+            <div className="detail-item"><span>Ride conflicts</span><strong>{alert.relatedRideGroup ? formatConflictCount(alert.relatedRideGroup.activeConflictCount) : 'No linked ride group'}</strong></div>
             <div className="detail-item"><span>State</span><ActionStateBadge value={alert.status} /></div>
+            <div className="detail-item"><span>Ride readiness</span><ActionStateBadge value={alert.relatedRideGroup?.readinessState ?? 'PENDING'} /></div>
           </div>
+          {alert.relatedRideGroup ? (
+            <div className="detail-block">
+              <h3>Ride Conflict Summary</h3>
+              <p className="detail-copy">
+                {alert.relatedRideGroup.hasBlockingConflicts
+                  ? 'Blocking conflicts are attached to the linked ride group.'
+                  : alert.relatedRideGroup.hasActiveConflicts
+                    ? 'Non-blocking conflicts are attached to the linked ride group.'
+                    : 'No active conflicts are attached to the linked ride group.'}
+              </p>
+              {alert.relatedRideGroup.highestConflictSeverity ? (
+                <div className="linked-entity-meta">
+                  <StatusBadge
+                    value={alert.relatedRideGroup.highestConflictSeverity.charAt(0).toUpperCase() + alert.relatedRideGroup.highestConflictSeverity.slice(1)}
+                    tone={getConflictSeverityTone(alert.relatedRideGroup.highestConflictSeverity)}
+                  />
+                  {alert.relatedRideGroup.hasBlockingConflicts ? <StatusBadge value="Blocking conflict" tone="strong" /> : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <RelatedEntitiesBlock
             rideGroupId={alert.relatedGroupId}
             zone={alert.relatedZone}

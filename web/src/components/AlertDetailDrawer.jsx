@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import ActionStateBadge from './ActionStateBadge';
 import DriverContextCard from './DriverContextCard';
+import PriorityScoreBadge from './PriorityScoreBadge';
 import RelatedEntitiesBlock from './RelatedEntitiesBlock';
 import { useOperations } from '../operations';
 import StatusBadge from './StatusBadge';
@@ -12,6 +13,12 @@ function formatDate(value) {
     month: 'short',
     day: 'numeric',
   }).format(new Date(value));
+}
+
+function getSeverityTone(severity) {
+  if (severity === 'critical' || severity === 'high') return 'strong';
+  if (severity === 'medium') return 'muted';
+  return 'default';
 }
 
 export default function AlertDetailDrawer({ alert, onClose }) {
@@ -62,6 +69,18 @@ export default function AlertDetailDrawer({ alert, onClose }) {
               <StatusBadge value={alert.severity} tone={alert.severityTone} />
             </div>
             <div className="detail-item">
+              <span>Priority score</span>
+              <strong>{alert.priorityScore ?? 0}</strong>
+            </div>
+            <div className="detail-item">
+              <span>Linked ride priority</span>
+              {alert.relatedRideGroup ? (
+                <PriorityScoreBadge score={alert.relatedRideGroup.priorityScore} />
+              ) : (
+                <strong>No linked ride group</strong>
+              )}
+            </div>
+            <div className="detail-item">
               <span>Alert code</span>
               <strong>{alert.code ?? alert.id}</strong>
             </div>
@@ -96,6 +115,28 @@ export default function AlertDetailDrawer({ alert, onClose }) {
         <section className="detail-block">
           <h3>Suggested Next Action</h3>
           <p className="detail-copy">{alert.suggestedAction}</p>
+        </section>
+
+        <section className="detail-block">
+          <h3>Recommendations</h3>
+          {alert.recommendations?.length ? (
+            <div className="linked-list">
+              {alert.recommendations.map((recommendation) => (
+                <article key={recommendation.id} className="linked-entity">
+                  <div>
+                    <strong>{recommendation.message}</strong>
+                    <span>{recommendation.reason}</span>
+                  </div>
+                  <div className="linked-entity-meta">
+                    <StatusBadge value={recommendation.severity} tone={getSeverityTone(recommendation.severity)} />
+                    <span>Confidence {Math.round((recommendation.confidence ?? 0) * 100)}%</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">No decision-support recommendations are active for this alert.</p>
+          )}
         </section>
       </div>
 

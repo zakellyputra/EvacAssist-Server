@@ -6,6 +6,8 @@ import { parseImage } from '../services/vlmParser.js';
 import { fuseIncident } from '../services/geoFusion.js';
 import Incident from '../models/Incident.js';
 import RawReport from '../models/RawReport.js';
+import { requireAdmin } from '../middleware/auth.js';
+import { syncRideGroupConflicts } from '../services/conflictEngine.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
@@ -68,6 +70,38 @@ router.get('/public', async (_req, res) => {
 
 router.get('/', requireAuth, async (_req, res) => {
   res.json(await listActiveIncidents());
+});
+
+router.patch('/:id/resolve', requireAdmin, async (req, res) => {
+  const incident = await Incident.findByIdAndUpdate(
+    req.params.id,
+    {
+      isActive: false,
+      resolvedAt: new Date(),
+      updatedAt: new Date(),
+    },
+    { new: true }
+  );
+  if (!incident) return res.status(404).json({ error: 'Incident not found' });
+
+  const conflicts = incident.tripId ? await syncRideGroupConflicts(incident.tripId) : [];
+  res.json({ ok: true, incident, conflicts });
+});
+
+router.patch('/:id/escalate', requireAdmin, async (req, res) => {
+  const incident = await Incident.findByIdAndUpdate(
+    req.params.id,
+    {
+      isActive: true,
+      resolvedAt: null,
+      updatedAt: new Date(),
+    },
+    { new: true }
+  );
+  if (!incident) return res.status(404).json({ error: 'Incident not found' });
+
+  const conflicts = incident.tripId ? await syncRideGroupConflicts(incident.tripId) : [];
+  res.json({ ok: true, incident, conflicts });
 });
 
 export default router;

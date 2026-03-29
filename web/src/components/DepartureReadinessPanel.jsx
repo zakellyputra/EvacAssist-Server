@@ -1,4 +1,6 @@
-export default function DepartureReadinessPanel({ detail, riderCount, capacity }) {
+import ActionStateBadge from './ActionStateBadge';
+
+export default function DepartureReadinessPanel({ detail, riderCount, capacity, readinessState }) {
   if (!detail) {
     return (
       <section className="detail-block">
@@ -31,6 +33,10 @@ export default function DepartureReadinessPanel({ detail, riderCount, capacity }
         <div className="detail-item detail-item-wide">
           <span>Departure readiness</span>
           <strong>{detail.readinessEstimate ?? 'Pending update'}</strong>
+        </div>
+        <div className="detail-item">
+          <span>Operational readiness</span>
+          <ActionStateBadge value={readinessState ?? 'PENDING'} />
         </div>
       </div>
     </section>

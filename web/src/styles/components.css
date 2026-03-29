@@ -143,6 +143,17 @@
   color: var(--text-muted);
 }
 
+.table-muted {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.table-badge-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
 .monitor-list,
 .alerts-list,
 .activity-feed {
@@ -546,6 +557,18 @@
   gap: 0.35rem;
 }
 
+.alert-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.alert-card-meta span {
+  font-size: 0.82rem;
+  color: var(--text-soft);
+}
+
 .activity-item {
   grid-template-columns: 68px minmax(0, 1fr);
   align-items: start;
@@ -614,8 +637,8 @@
 }
 
 .filter-bar {
-  display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) repeat(4, minmax(140px, 0.7fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
   align-items: end;
 }
@@ -733,6 +756,11 @@
   margin: 0;
 }
 
+.inline-meta {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
 .driver-issue-row {
   display: flex;
   justify-content: space-between;
@@ -759,6 +787,25 @@
 .linked-list {
   display: grid;
   gap: var(--space-2);
+}
+
+.operator-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.operator-note-input {
+  width: 100%;
+  min-height: 88px;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--text);
+  resize: vertical;
+  font: inherit;
 }
 
 .manifest-row,
@@ -859,6 +906,9 @@
 }
 
 .map-marker-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   min-height: 2rem;
   padding: 0.35rem 0.5rem;
   border: 1px solid var(--border-strong);
@@ -875,8 +925,39 @@
   font-weight: 700;
 }
 
+.map-marker-node strong {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.08);
+}
+
 .map-marker-node-rideGroup {
   border-color: #111111;
+}
+
+.map-marker-priority-critical {
+  background: #111111;
+  color: #ffffff;
+}
+
+.map-marker-priority-critical strong,
+.map-marker-priority-high strong {
+  background: rgba(255, 255, 255, 0.18);
+  color: inherit;
+}
+
+.map-marker-priority-high {
+  border-color: #111111;
+  background: #e4e4de;
+}
+
+.map-marker-priority-medium {
+  background: #f1f1ee;
+}
+
+.map-marker-priority-low {
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .map-marker-node-driver {

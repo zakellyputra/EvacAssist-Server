@@ -1,4 +1,5 @@
 import Panel from './Panel';
+import PriorityScoreBadge from './PriorityScoreBadge';
 import StatusBadge from './StatusBadge';
 
 export default function AlertsList({ alerts, onSelectAlert, compact = true, embedded = false, actions = null }) {
@@ -19,6 +20,14 @@ export default function AlertsList({ alerts, onSelectAlert, compact = true, embe
           <div className="alert-card-copy">
             <strong>{alert.title}</strong>
             <p>{alert.description}</p>
+            <div className="alert-card-meta">
+              <span>Ride priority</span>
+              {alert.relatedRideGroup ? (
+                <PriorityScoreBadge score={alert.relatedRideGroup.priorityScore} />
+              ) : (
+                <StatusBadge value="No linked ride group" tone="muted" />
+              )}
+            </div>
           </div>
           <div className="alert-card-action">
             <span>{alert.relatedZone}</span>

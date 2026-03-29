@@ -290,6 +290,7 @@ export const users = [
   { _id: 'user-driver-b18', fullName: 'Marcus T.', phone: '+1-555-0104', email: 'driver.b18@evacassist.local', passwordHash: 'demo-driver-hash', role: 'driver', isVerified: true, isActive: true, createdAt: '2026-03-20T08:15:00-04:00', updatedAt: '2026-03-28T08:29:00-04:00' },
   { _id: 'user-driver-a04', fullName: 'Priya S.', phone: '+1-555-0105', email: 'driver.a04@evacassist.local', passwordHash: 'demo-driver-hash', role: 'driver', isVerified: true, isActive: true, createdAt: '2026-03-20T08:20:00-04:00', updatedAt: '2026-03-28T08:25:00-04:00' },
   { _id: 'user-driver-k04', fullName: 'Jonah P.', phone: '+1-555-0106', email: 'driver.k04@evacassist.local', passwordHash: 'demo-driver-hash', role: 'driver', isVerified: true, isActive: true, createdAt: '2026-03-20T08:25:00-04:00', updatedAt: '2026-03-28T08:18:00-04:00' },
+  { _id: 'user-driver-m22', fullName: 'Elena V.', phone: '+1-555-0107', email: 'driver.m22@evacassist.local', passwordHash: 'demo-driver-hash', role: 'driver', isVerified: true, isActive: true, createdAt: '2026-03-20T08:30:00-04:00', updatedAt: '2026-03-28T08:44:00-04:00' },
 ];
 
 export const vehicles = [
@@ -299,6 +300,7 @@ export const vehicles = [
   { _id: 'vehicle-b18', driverUserId: 'user-driver-b18', type: 'car', label: 'SUV 3', plateNumber: 'EA-B18', seatCapacity: 6, wheelchairAccessible: false, fuelLevelPercent: 54, isActive: true, currentLocation: { lat: -1.2901, lng: 36.8348, accuracy: 14, timestamp: '2026-03-28T08:29:00-04:00' }, createdAt: '2026-03-20T08:15:00-04:00', updatedAt: '2026-03-28T08:29:00-04:00' },
   { _id: 'vehicle-a04', driverUserId: 'user-driver-a04', type: 'car', label: 'Sedan 1', plateNumber: 'EA-A04', seatCapacity: 4, wheelchairAccessible: false, fuelLevelPercent: 76, isActive: true, currentLocation: { lat: -1.2898, lng: 36.8187, accuracy: 7, timestamp: '2026-03-28T08:25:00-04:00' }, createdAt: '2026-03-20T08:20:00-04:00', updatedAt: '2026-03-28T08:25:00-04:00' },
   { _id: 'vehicle-k04', driverUserId: 'user-driver-k04', type: 'van', label: 'Van 8', plateNumber: 'EA-K04', seatCapacity: 5, wheelchairAccessible: true, fuelLevelPercent: 48, isActive: true, currentLocation: { lat: -1.2744, lng: 36.8254, accuracy: 18, timestamp: '2026-03-28T08:18:00-04:00' }, createdAt: '2026-03-20T08:25:00-04:00', updatedAt: '2026-03-28T08:18:00-04:00' },
+  { _id: 'vehicle-m22', driverUserId: 'user-driver-m22', type: 'van', label: 'Van 9', plateNumber: 'EA-M22', seatCapacity: 6, wheelchairAccessible: true, fuelLevelPercent: 87, isActive: true, currentLocation: { lat: -1.2769, lng: 36.8246, accuracy: 8, timestamp: '2026-03-28T08:44:00-04:00' }, createdAt: '2026-03-20T08:30:00-04:00', updatedAt: '2026-03-28T08:44:00-04:00' },
 ];
 
 export const drivers = [
@@ -308,6 +310,7 @@ export const drivers = [
   { _id: 'driver-b18', userId: 'user-driver-b18', vehicleId: 'vehicle-b18', licenseVerified: true, status: 'unavailable', currentLocation: { lat: -1.2901, lng: 36.8348, accuracy: 14, timestamp: '2026-03-28T08:29:00-04:00' }, lastHeartbeatAt: '2026-03-28T08:29:00-04:00', capacityOverride: 6, notes: 'Vehicle is held while alternate routing for East-2 is reviewed.', createdAt: '2026-03-20T08:15:00-04:00', updatedAt: '2026-03-28T08:29:00-04:00' },
   { _id: 'driver-a04', userId: 'user-driver-a04', vehicleId: 'vehicle-a04', licenseVerified: true, status: 'assigned', currentLocation: { lat: -1.2898, lng: 36.8187, accuracy: 7, timestamp: '2026-03-28T08:25:00-04:00' }, lastHeartbeatAt: '2026-03-28T08:25:00-04:00', capacityOverride: 4, notes: 'Central Spine group is still filling before closure.', createdAt: '2026-03-20T08:20:00-04:00', updatedAt: '2026-03-28T08:25:00-04:00' },
   { _id: 'driver-k04', userId: 'user-driver-k04', vehicleId: 'vehicle-k04', licenseVerified: true, status: 'unavailable', currentLocation: { lat: -1.2744, lng: 36.8254, accuracy: 18, timestamp: '2026-03-28T08:18:00-04:00' }, lastHeartbeatAt: '2026-03-28T08:18:00-04:00', capacityOverride: 5, notes: 'Telemetry recovered late after a stalled departure window near North Corridor.', createdAt: '2026-03-20T08:25:00-04:00', updatedAt: '2026-03-28T08:18:00-04:00' },
+  { _id: 'driver-m22', userId: 'user-driver-m22', vehicleId: 'vehicle-m22', licenseVerified: true, status: 'available', currentLocation: { lat: -1.2769, lng: 36.8246, accuracy: 8, timestamp: '2026-03-28T08:44:00-04:00' }, lastHeartbeatAt: '2026-03-28T08:44:00-04:00', capacityOverride: 6, notes: 'Standby unit checked in at the north dispatch staging area and is ready for reassignment.', createdAt: '2026-03-20T08:30:00-04:00', updatedAt: '2026-03-28T08:44:00-04:00' },
 ];
 
 export const zones = Object.entries(zoneUi).map(([id, meta]) => {
@@ -484,6 +487,14 @@ export const initialRideGroups = trips.map((trip) => {
 
   return {
     id: ui.displayId,
+    tripId: trip._id,
+    requestId: request._id,
+    driverUserId: trip.driverUserId ?? null,
+    vehicleId: trip.vehicleId ?? null,
+    zoneId: zone._id,
+    requestStatus: request.status,
+    tripStatus: trip.status,
+    priorityLevel: request.priorityLevel,
     pickupPoint: ui.pickupPoint,
     pickupDetail: ui.pickupDetail,
     corridor: zoneUi[zone._id].corridor,
@@ -504,6 +515,26 @@ export const initialRideGroups = trips.map((trip) => {
     pickupIssues: ui.pickupIssues,
     linkedAlertIds: alertsByTripId.get(trip._id) ?? [],
     riders: ui.riders,
+    schemaRefs: {
+      tripId: trip._id,
+      requestId: request._id,
+      driverUserId: trip.driverUserId ?? null,
+      vehicleId: trip.vehicleId ?? null,
+      zoneId: zone._id,
+    },
+    schemaStatus: {
+      trip: trip.status,
+      request: request.status,
+      driver: driverByUserId.get(trip.driverUserId ?? '')?.status ?? null,
+    },
+    schemaSnapshot: {
+      trip,
+      request,
+      driver: trip.driverUserId ? driverByUserId.get(trip.driverUserId) ?? null : null,
+      vehicle,
+      zone,
+      driverUser,
+    },
   };
 });
 

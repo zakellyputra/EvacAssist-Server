@@ -15,6 +15,8 @@ import zoneRoutes from './routes/zones.js';
 import syncRoutes from './routes/sync.js';
 import paymentRoutes from './routes/payment.js';
 import userRoutes from './routes/users.js';
+import aiRoutes from './routes/ai.js';
+import conflictRoutes from './routes/conflicts.js';
 import User from './models/User.js';
 
 import { verifyToken } from './middleware/auth.js';
@@ -56,6 +58,8 @@ app.use('/api/zones', zoneRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/conflicts', conflictRoutes);
 
 // Health check
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));

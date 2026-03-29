@@ -43,7 +43,7 @@ export default function DashboardPage() {
             onSelectAlert={openAlert}
             actions={<Link className="button button-secondary" to="/alerts">View all alerts</Link>}
           />
-          <DashboardExceptionSummary summary={driverExceptionSummary} onOpenAlert={openAlert} />
+          <DashboardExceptionSummary summary={driverExceptionSummary} onOpenAlert={openAlert} onOpenRideGroup={openRideGroup} />
           <ActivityFeed items={activity} />
         </div>
       </section>
