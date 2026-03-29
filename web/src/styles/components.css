@@ -1021,6 +1021,21 @@
   white-space: nowrap;
 }
 
+.map-marker-node em {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: rgba(17, 17, 17, 0.1);
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
 .map-marker-node span {
   font-size: 0.75rem;
   font-weight: 700;
@@ -1071,6 +1086,35 @@
   background: #ecece8;
 }
 
+.map-marker-node-zone {
+  border-radius: 10px;
+  border-color: #40403d;
+  background: rgba(97, 97, 92, 0.14);
+}
+
+.map-marker-node-zone em {
+  background: rgba(64, 64, 61, 0.12);
+}
+
+.map-marker-node-alertArea {
+  border-radius: 10px;
+  border-style: dashed;
+  border-color: #111111;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.map-marker-node-conflictZone {
+  border-radius: 10px;
+  border-color: #9f1d1d;
+  background: rgba(255, 244, 244, 0.96);
+}
+
+.map-marker-node-conflictZone em,
+.map-marker-node-conflictCountry em {
+  background: rgba(126, 23, 23, 0.12);
+  color: #7e1717;
+}
+
 .map-marker-node-conflictCountry {
   min-width: 8rem;
   border-radius: 999px;
@@ -1087,6 +1131,12 @@
 .map-marker-node.is-selected {
   background: #111111;
   color: #ffffff;
+}
+
+.map-marker-node.is-selected em,
+.map-marker-node.is-selected strong {
+  background: rgba(255, 255, 255, 0.18);
+  color: inherit;
 }
 
 .map-legend-rich {

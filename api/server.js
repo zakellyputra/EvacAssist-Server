@@ -17,6 +17,7 @@ import paymentRoutes from './routes/payment.js';
 import userRoutes from './routes/users.js';
 import aiRoutes from './routes/ai.js';
 import conflictRoutes from './routes/conflicts.js';
+import demoRoutes from './routes/demo.js';
 import User from './models/User.js';
 import {
   conflictAdminRoutes,
@@ -68,6 +69,7 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/conflicts', conflictRoutes);
+app.use('/api/demo', demoRoutes);
 app.use('/api/conflict', conflictPublicRoutes);
 app.use('/api/admin/conflict', conflictAdminRoutes);
 app.use('/api/routing', routingRoutes);

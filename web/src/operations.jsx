@@ -354,6 +354,8 @@ export function OperationsProvider({ children }) {
   const [rideGroups, setRideGroups] = useState(initialRideGroups);
   const [alerts, setAlerts] = useState(initialAlerts);
   const [activity, setActivity] = useState(initialActivity);
+  const [backendOverview, setBackendOverview] = useState(null);
+  const [backendOverviewState, setBackendOverviewState] = useState({ status: 'idle', error: '' });
   const [backendConflicts, setBackendConflicts] = useState([]);
   const [conflictSyncState, setConflictSyncState] = useState({ status: 'idle', error: '' });
   const [conflictIntelZones, setConflictIntelZones] = useState([]);
@@ -377,6 +379,36 @@ export function OperationsProvider({ children }) {
     status: 'All',
   });
   const [confirmation, setConfirmation] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOperationsOverview() {
+      setBackendOverviewState({ status: 'loading', error: '' });
+      try {
+        const response = await apiFetch('/api/demo/operations-overview', { auth: false });
+        if (cancelled) return;
+        setBackendOverview(response ?? null);
+        setBackendOverviewState({ status: 'ready', error: '' });
+      } catch (error) {
+        if (cancelled) return;
+        console.warn('Unable to load backend operations overview.', error);
+        setBackendOverview(null);
+        setBackendOverviewState({
+          status: 'error',
+          error: error?.message ?? 'Operations overview unavailable',
+        });
+      }
+    }
+
+    loadOperationsOverview();
+    const intervalId = window.setInterval(loadOperationsOverview, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -529,38 +561,63 @@ export function OperationsProvider({ children }) {
   );
 
   const dashboardStats = useMemo(() => {
-    const activeGroups = rideGroupOperationalViews.filter((group) => !['Completed', 'Cancelled'].includes(group.status));
-    const openGroups = activeGroups.filter((group) => ['Open', 'Filling'].includes(group.status));
-    const flaggedGroups = activeGroups.filter((group) => group.status === 'Flagged' || group.interventionState === 'Needs Review');
-    const criticalAlerts = alertsWithDecisionSupport.filter((alert) => alert.status !== 'Resolved' && alert.severity === 'Critical');
+    if (backendOverview?.summary) {
+      const summary = backendOverview.summary;
+      return [
+        {
+          label: 'Active Ride Groups',
+          value: formatCount(summary.activeRideGroups ?? 0),
+          support: `${summary.activeRideGroups ?? 0} active from Mongo-backed trip records with ${summary.movingRideGroups ?? 0} already moving.`,
+          context: backendOverviewState.status === 'ready' ? 'Live backend data' : 'Backend sync in progress',
+        },
+        {
+          label: 'Waiting / Unmatched Riders',
+          value: formatCount(summary.waitingUnmatchedRiders ?? 0),
+          support: `${summary.waitingUnmatchedRiders ?? 0} riders or open requests still need assignment.`,
+          context: 'Live backend data',
+        },
+        {
+          label: 'Active Drivers',
+          value: formatCount(summary.activeDrivers ?? 0),
+          support: `${summary.activeDrivers ?? 0} driver records are currently active in Mongo.`,
+          context: `${summary.stagedDrivers ?? 0} staged / available`,
+        },
+        {
+          label: 'Critical Alerts',
+          value: formatCount(summary.criticalAlerts ?? 0),
+          support: `${summary.criticalAlerts ?? 0} critical incidents or conflicts currently need attention.`,
+          context: `${summary.flaggedGroups ?? 0} groups flagged`,
+        },
+      ];
+    }
 
     return [
       {
         label: 'Active Ride Groups',
-        value: formatCount(activeGroups.length),
-        support: `${activeGroups.length} active across 4 pickup corridors with ${rideGroupOperationalViews.filter((group) => group.status === 'En Route').length} already moving.`,
-        context: `${openGroups.length} still forming`,
+        value: '0',
+        support: 'Live backend summary is unavailable, so ride totals cannot be verified right now.',
+        context: 'Backend data unavailable',
       },
       {
         label: 'Waiting / Unmatched Riders',
-        value: '7',
-        support: 'Seven riders still need assignment before the next outbound staging cycle closes.',
-        context: 'North and East corridors',
+        value: '0',
+        support: 'Waiting rider totals are unavailable until the backend overview loads.',
+        context: 'Backend data unavailable',
       },
       {
         label: 'Active Drivers',
-        value: '19',
-        support: 'Nineteen field units are checked in, with 4 currently loading and 2 in reassignment review.',
-        context: '16 moving, 3 staged',
+        value: '0',
+        support: 'Driver totals are unavailable until the backend overview loads.',
+        context: 'Backend data unavailable',
       },
       {
         label: 'Critical Alerts',
-        value: formatCount(criticalAlerts.length),
-        support: `${criticalAlerts.length} high-risk exceptions currently need manual review or action confirmation.`,
-        context: `${flaggedGroups.length} groups flagged`,
+        value: '0',
+        support: 'Critical alert totals are unavailable until the backend overview loads.',
+        context: 'Backend data unavailable',
       },
     ];
-  }, [alertsWithDecisionSupport, rideGroupOperationalViews]);
+  }, [alertsWithDecisionSupport, backendOverview, backendOverviewState.status, rideGroupOperationalViews]);
 
   const dashboardRideGroups = useMemo(
     () => [...rideGroupOperationalViews].filter((group) => group.status !== 'Completed').sort(byNewest).slice(0, 7),
@@ -623,9 +680,26 @@ export function OperationsProvider({ children }) {
   }, [alertsWithDecisionSupport, rideGroupOperationalViews]);
 
   const liveMapResolved = useMemo(() => {
+    if (backendOverview?.map) {
+      const backendViewport = backendOverview.map.viewport ?? null;
+      const conflictViewport = deriveConflictMapViewport(conflictIntelZones);
+      return {
+        center: conflictViewport?.center ?? backendViewport?.center ?? liveMapData.center,
+        zoom: conflictViewport ? 6 : (backendViewport ? 11 : liveMapData.zoom),
+        bounds: conflictViewport?.bounds ?? backendViewport?.bounds ?? null,
+        rideGroups: Array.isArray(backendOverview.map.rideGroups) ? backendOverview.map.rideGroups : [],
+        drivers: Array.isArray(backendOverview.map.drivers) ? backendOverview.map.drivers : [],
+        pickupPoints: Array.isArray(backendOverview.map.pickupPoints) ? backendOverview.map.pickupPoints : [],
+        zones: Array.isArray(backendOverview.map.zones) ? backendOverview.map.zones : [],
+        conflictZones: conflictIntelZones,
+        conflictCountries: deriveConflictCountryItems(conflictIntelZones),
+        alertAreas: Array.isArray(backendOverview.map.alertAreas) ? backendOverview.map.alertAreas : [],
+        sceneMode: 'backend-operations',
+      };
+    }
+
     const rideGroupMap = new Map(rideGroupOperationalViews.map((group) => [group.id, group]));
     const alertMap = new Map(alertsWithDecisionSupport.map((alert) => [alert.id, alert]));
-    const hasConflictIntelScene = conflictIntelState.status === 'ready' && conflictIntelZones.length > 0;
 
     const resolvedRideGroups = liveMapData.mapRideGroups.map((item) => ({
       ...item,
@@ -669,16 +743,16 @@ export function OperationsProvider({ children }) {
       center: conflictViewport?.center ?? liveMapData.center,
       zoom: conflictViewport ? 6 : liveMapData.zoom,
       bounds: conflictViewport?.bounds ?? null,
-      rideGroups: hasConflictIntelScene ? [] : resolvedRideGroups,
-      drivers: hasConflictIntelScene ? [] : resolvedDrivers,
-      pickupPoints: hasConflictIntelScene ? [] : resolvedPickupPoints,
-      zones: hasConflictIntelScene ? [] : resolvedZones,
+      rideGroups: resolvedRideGroups,
+      drivers: resolvedDrivers,
+      pickupPoints: resolvedPickupPoints,
+      zones: resolvedZones,
       conflictZones: resolvedConflictZones,
       conflictCountries,
-      alertAreas: hasConflictIntelScene ? [] : resolvedAlertAreas,
-      sceneMode: hasConflictIntelScene ? 'conflict-intel' : 'mock-operations',
+      alertAreas: resolvedAlertAreas,
+      sceneMode: conflictIntelState.status === 'ready' && conflictIntelZones.length > 0 ? 'hybrid-operations' : 'mock-operations',
     };
-  }, [alertsWithDecisionSupport, conflictIntelState.status, conflictIntelZones, rideGroupOperationalViews]);
+  }, [alertsWithDecisionSupport, backendOverview, conflictIntelState.status, conflictIntelZones, rideGroupOperationalViews]);
 
   const filteredLiveMapData = useMemo(() => {
     const zoneMatch = (zoneValue) => mapFilters.zone === 'All' || zoneValue === mapFilters.zone;
@@ -713,14 +787,27 @@ export function OperationsProvider({ children }) {
     };
   }, [liveMapResolved, mapFilters]);
 
-  const liveMapSummaries = useMemo(() => ([
-    { label: 'Active groups on map', value: filteredLiveMapData.rideGroups.length },
-    { label: 'Tracked drivers', value: filteredLiveMapData.drivers.length },
-    { label: 'Active pickup points', value: filteredLiveMapData.pickupPoints.length },
-    { label: 'Restricted zones', value: filteredLiveMapData.zones.length },
-    { label: 'Danger zones', value: filteredLiveMapData.conflictZones.length },
-    { label: 'Map-linked alerts', value: filteredLiveMapData.alertAreas.filter((item) => item.alert?.status !== 'Resolved').length },
-  ]), [filteredLiveMapData]);
+  const liveMapSummaries = useMemo(() => {
+    if (backendOverview?.summary?.map) {
+      return [
+        { label: 'Active groups on map', value: backendOverview.summary.map.activeGroups ?? 0 },
+        { label: 'Tracked drivers', value: backendOverview.summary.map.trackedDrivers ?? 0 },
+        { label: 'Active pickup points', value: backendOverview.summary.map.activePickupPoints ?? 0 },
+        { label: 'Restricted zones', value: backendOverview.summary.map.restrictedZones ?? 0 },
+        { label: 'Danger zones', value: backendOverview.summary.map.dangerZones ?? 0 },
+        { label: 'Map-linked alerts', value: backendOverview.summary.map.mapLinkedAlerts ?? 0 },
+      ];
+    }
+
+    return [
+      { label: 'Active groups on map', value: filteredLiveMapData.rideGroups.length },
+      { label: 'Tracked drivers', value: filteredLiveMapData.drivers.length },
+      { label: 'Active pickup points', value: filteredLiveMapData.pickupPoints.length },
+      { label: 'Restricted zones', value: filteredLiveMapData.zones.length },
+      { label: 'Danger zones', value: filteredLiveMapData.conflictZones.length },
+      { label: 'Map-linked alerts', value: filteredLiveMapData.alertAreas.filter((item) => item.alert?.status !== 'Resolved').length },
+    ];
+  }, [backendOverview, filteredLiveMapData]);
 
   const selectedMapItemData = useMemo(() => {
     if (!selectedMapItem) return null;

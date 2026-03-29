@@ -27,6 +27,15 @@ function geometryBounds(geometry) {
   ];
 }
 
+function geometryCenter(geometry) {
+  const bounds = geometryBounds(geometry);
+  if (!bounds) return null;
+  return [
+    (bounds[0][0] + bounds[1][0]) / 2,
+    (bounds[0][1] + bounds[1][1]) / 2,
+  ];
+}
+
 export default function MapCanvas({ data, selectedMapItem, onSelect }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -261,6 +270,15 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       ...conflictCountries
         .filter((item) => item?.center && item?.id)
         .map((item) => ({ ...item, type: 'conflictCountry', coordinates: item.center, label: item.country })),
+      ...conflictZones
+        .filter((item) => item?.id)
+        .map((item) => ({
+          ...item,
+          type: 'conflictZone',
+          coordinates: item.centroid?.coordinates ?? geometryCenter(item.geometry?.geometry ?? item.geometry),
+          label: item.zoneId ?? 'Conflict',
+        }))
+        .filter((item) => item.coordinates),
       ...rideGroups
         .filter((item) => item?.coordinates && item?.rideGroup?.id)
         .map((item) => ({ ...item, type: 'rideGroup', coordinates: item.coordinates, label: item.rideGroup.id })),
@@ -270,6 +288,24 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       ...pickupPoints
         .filter((item) => item?.coordinates && item?.name)
         .map((item) => ({ ...item, type: 'pickup', coordinates: item.coordinates, label: item.name })),
+      ...zones
+        .filter((item) => item?.id)
+        .map((item) => ({
+          ...item,
+          type: 'zone',
+          coordinates: geometryCenter(item.geometry?.geometry ?? item.geometry),
+          label: item.name ?? 'Zone',
+        }))
+        .filter((item) => item.coordinates),
+      ...alertAreas
+        .filter((item) => item?.id)
+        .map((item) => ({
+          ...item,
+          type: 'alertArea',
+          coordinates: geometryCenter(item.geometry?.geometry ?? item.geometry),
+          label: item.alert?.title ?? item.name ?? 'Alert',
+        }))
+        .filter((item) => item.coordinates),
     ];
 
     entries.forEach((entry) => {
@@ -278,11 +314,27 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       const selectedId = selectedRef.current?.item?.id ?? selectedRef.current?.id;
       const priorityBand = entry.type === 'rideGroup' ? getPriorityBand(entry.rideGroup?.priorityScore) : null;
       el.className = `map-marker-node map-marker-node-${entry.type}${priorityBand ? ` map-marker-priority-${priorityBand.markerClass}` : ''}${selectedRef.current?.type === entry.type && selectedId === entry.id ? ' is-selected' : ''}`;
-      el.innerHTML = entry.type === 'rideGroup'
-        ? `<span>${entry.label}</span><strong>${formatPriorityValue(entry.rideGroup?.priorityScore)}</strong>`
+      const icon = entry.type === 'rideGroup'
+        ? 'RG'
+        : entry.type === 'driver'
+          ? 'DR'
+          : entry.type === 'pickup'
+            ? 'PU'
+            : entry.type === 'zone'
+              ? 'ZN'
+              : entry.type === 'alertArea'
+                ? 'AL'
+                : entry.type === 'conflictZone'
+                  ? 'CZ'
+                  : 'CT';
+      const secondary = entry.type === 'rideGroup'
+        ? formatPriorityValue(entry.rideGroup?.priorityScore)
         : entry.type === 'conflictCountry'
-          ? `<span>${entry.label}</span><strong>${entry.zoneCount} zones</strong>`
-          : `<span>${entry.label}</span>`;
+          ? `${entry.zoneCount} zones`
+          : null;
+      el.innerHTML = secondary
+        ? `<em>${icon}</em><span>${entry.label}</span><strong>${secondary}</strong>`
+        : `<em>${icon}</em><span>${entry.label}</span>`;
       el.setAttribute('aria-label', entry.type === 'rideGroup'
         ? `${entry.label} priority ${formatPriorityValue(entry.rideGroup?.priorityScore)}`
         : entry.type === 'conflictCountry'
@@ -312,6 +364,20 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
     if (selectedMapItem.type === 'pickup') {
       coordinates = pickupPoints.find((item) => item.id === selectedMapItem.id)?.coordinates ?? null;
     }
+    if (selectedMapItem.type === 'zone') {
+      const zone = zones.find((item) => item.id === selectedMapItem.id);
+      const bounds = geometryBounds(zone?.geometry?.geometry ?? zone?.geometry);
+      if (bounds) {
+        map.fitBounds(bounds, {
+          padding: 52,
+          maxZoom: 11,
+          essential: true,
+          duration: 700,
+        });
+        return;
+      }
+      coordinates = geometryCenter(zone?.geometry?.geometry ?? zone?.geometry);
+    }
     if (selectedMapItem.type === 'conflictZone') {
       const zone = conflictZones.find((item) => item.id === selectedMapItem.id);
       const bounds = geometryBounds(zone?.geometry?.geometry ?? zone?.geometry);
@@ -339,6 +405,20 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       }
       coordinates = country?.center ?? null;
     }
+    if (selectedMapItem.type === 'alertArea') {
+      const alertArea = alertAreas.find((item) => item.id === selectedMapItem.id);
+      const bounds = geometryBounds(alertArea?.geometry?.geometry ?? alertArea?.geometry);
+      if (bounds) {
+        map.fitBounds(bounds, {
+          padding: 52,
+          maxZoom: 11,
+          essential: true,
+          duration: 700,
+        });
+        return;
+      }
+      coordinates = geometryCenter(alertArea?.geometry?.geometry ?? alertArea?.geometry);
+    }
 
     if (!coordinates) return;
 
@@ -348,7 +428,7 @@ export default function MapCanvas({ data, selectedMapItem, onSelect }) {
       essential: true,
       duration: 700,
     });
-  }, [conflictCountries, conflictZones, drivers, pickupPoints, rideGroups, selectedMapItem]);
+  }, [alertAreas, conflictCountries, conflictZones, drivers, pickupPoints, rideGroups, selectedMapItem, zones]);
 
   return <div ref={containerRef} className="live-map-canvas" />;
 }
