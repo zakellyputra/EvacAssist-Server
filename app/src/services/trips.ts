@@ -29,6 +29,28 @@ export interface AvailableTrip {
   status: string;
 }
 
+export interface TripDriverDetails {
+  id: string;
+  name: string;
+  username: string;
+  vehicle?: {
+    make?: string;
+    model?: string;
+    seats?: number;
+  };
+}
+
+export interface MyTrip {
+  _id: string;
+  status: string;
+  passengers: number;
+  created_at: string;
+  accepted_at?: string;
+  rider_id: string;
+  driver_id?: string;
+  driver?: TripDriverDetails | null;
+}
+
 export interface RoutePoint {
   latitude: number;
   longitude: number;
@@ -63,6 +85,22 @@ export async function getAvailableTrips(location?: { lat: number; lng: number } 
     response = await send(refreshed.accessToken);
   }
   if (!response.ok) throw new Error(`Failed to fetch trips (${response.status})`);
+  const data = await response.json();
+  return data.trips ?? data ?? [];
+}
+
+export async function getMyTrips(): Promise<MyTrip[]> {
+  const send = (accessToken: string) => fetch(`${API_URL}/api/trips/my`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  const session = await ensureSession();
+  let response = await send(session.accessToken);
+  if (response.status === 401) {
+    const refreshed = await refreshSession();
+    response = await send(refreshed.accessToken);
+  }
+  if (!response.ok) throw new Error(`Failed to fetch my trips (${response.status})`);
   const data = await response.json();
   return data.trips ?? data ?? [];
 }

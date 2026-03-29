@@ -329,8 +329,32 @@ router.get('/my', requireAuth, async (req, res) => {
   const filter = req.user.role === 'driver'
     ? { driver_id: req.user.id }
     : { rider_id: req.user.id };
-  const trips = await Trip.find(filter).sort({ created_at: -1 }).limit(50);
-  res.json(trips);
+  const query = Trip.find(filter).sort({ created_at: -1 }).limit(50);
+
+  if (req.user.role !== 'driver') {
+    query.populate('driver_id', 'name username vehicle');
+  }
+
+  const trips = await query.lean();
+  const tripsWithDriverDetails = trips.map((trip) => {
+    if (req.user.role === 'driver' || !trip.driver_id || typeof trip.driver_id !== 'object') {
+      return { ...trip, driver: null };
+    }
+
+    const driver = trip.driver_id;
+    return {
+      ...trip,
+      driver_id: driver._id,
+      driver: {
+        id: driver._id,
+        name: driver.name,
+        username: driver.username,
+        vehicle: driver.vehicle ?? null,
+      },
+    };
+  });
+
+  res.json(tripsWithDriverDetails);
 });
 
 export default router;
