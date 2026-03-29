@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet } from 'react-native';
-import { Button, TextInput, Text, SegmentedButtons, Snackbar } from 'react-native-paper';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Button, TextInput, Text, SegmentedButtons, Snackbar, Card } from 'react-native-paper';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { useOfflineDatabase } from '../hooks/useOfflineDatabase';
@@ -79,13 +79,11 @@ export default function RequestScreen() {
           setNotes('');
           return;
         } catch (remoteError: any) {
-          // Fall back to local queue flow if backend request fails.
           const backendMessage = remoteError?.message ?? 'Backend unreachable';
           setError(`Saved offline. Will sync later. ${backendMessage}`);
         }
       }
 
-      // Create trip in local database first
       await createTrip({
         pickupLoc: JSON.stringify(pickupPoint),
         passengers: normalizedPassengers,
@@ -103,47 +101,84 @@ export default function RequestScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text variant="titleLarge" style={styles.title}>Request Evacuation</Text>
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
 
-      <Text variant="labelLarge">Passengers</Text>
-      <SegmentedButtons
-        value={passengers}
-        onValueChange={setPassengers}
-        buttons={['1','2','3','4','5+'].map((v) => ({ value: v, label: v }))}
-        style={styles.field}
-      />
+      {/* Connection status banner */}
+      <View style={[styles.statusBanner, isOnline ? styles.bannerOnline : styles.bannerOffline]}>
+        <Text style={styles.statusBannerText}>
+          {isOnline
+            ? '✓  Connected — request will be sent immediately'
+            : '⚠  Offline — request will sync when back online'}
+        </Text>
+      </View>
 
-      <TextInput
-        label="Accessibility needs (optional)"
-        value={accessibility}
-        onChangeText={setAccessibility}
-        style={styles.field}
-      />
+      {/* Passengers */}
+      <Card style={styles.card} mode="elevated">
+        <Card.Content style={styles.cardContent}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>👥  Passengers</Text>
+          <Text variant="bodySmall" style={styles.sectionSub}>How many people need evacuation?</Text>
+          <SegmentedButtons
+            value={passengers}
+            onValueChange={setPassengers}
+            buttons={['1', '2', '3', '4', '5+'].map((v) => ({ value: v, label: v }))}
+            style={styles.segments}
+          />
+        </Card.Content>
+      </Card>
 
-      <TextInput
-        label="Notes for driver (optional)"
-        value={notes}
-        onChangeText={setNotes}
-        multiline
-        numberOfLines={3}
-        style={styles.field}
-      />
+      {/* Special requirements */}
+      <Card style={styles.card} mode="elevated">
+        <Card.Content style={styles.cardContent}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>♿  Special Requirements</Text>
+          <TextInput
+            label="Accessibility needs (optional)"
+            value={accessibility}
+            onChangeText={setAccessibility}
+            mode="outlined"
+            placeholder="e.g. wheelchair, stretcher, oxygen"
+            style={styles.input}
+          />
+        </Card.Content>
+      </Card>
 
+      {/* Notes for driver */}
+      <Card style={styles.card} mode="elevated">
+        <Card.Content style={styles.cardContent}>
+          <Text variant="titleSmall" style={styles.sectionTitle}>📝  Notes for Driver</Text>
+          <TextInput
+            label="Additional notes (optional)"
+            value={notes}
+            onChangeText={setNotes}
+            mode="outlined"
+            placeholder="e.g. rooftop access, bring water, north entrance"
+            multiline
+            numberOfLines={3}
+            style={styles.input}
+          />
+        </Card.Content>
+      </Card>
+
+      {/* Submit */}
       <Button
         mode="contained"
         onPress={submitRequest}
         loading={loading}
         disabled={loading}
-        style={styles.field}
+        icon="send"
+        style={styles.submitBtn}
+        contentStyle={styles.submitBtnContent}
+        labelStyle={styles.submitBtnLabel}
       >
-        Submit Request
+        {loading ? 'Sending Request…' : 'Send Evacuation Request'}
       </Button>
+
+      <Text style={styles.disclaimer}>
+        Your GPS location will be shared with nearby drivers. Response times vary.
+      </Text>
 
       <Snackbar visible={!!error} onDismiss={() => setError('')} duration={4000}>
         {error}
       </Snackbar>
-
       <Snackbar
         visible={!!success}
         onDismiss={() => {
@@ -159,7 +194,37 @@ export default function RequestScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24, gap: 8 },
-  title: { marginBottom: 16 },
-  field: { marginVertical: 8 },
+  scroll: { backgroundColor: '#F0F2F5' },
+  container: { padding: 16, gap: 12, paddingBottom: 36 },
+
+  statusBanner: {
+    borderRadius: 8,
+    padding: 12,
+    borderLeftWidth: 4,
+  },
+  bannerOnline: { backgroundColor: '#E8F5E9', borderLeftColor: '#388E3C' },
+  bannerOffline: { backgroundColor: '#FFF3E0', borderLeftColor: '#E65100' },
+  statusBannerText: { fontSize: 13, color: '#37474F' },
+
+  card: { borderRadius: 12 },
+  cardContent: { gap: 8, paddingVertical: 4 },
+  sectionTitle: { fontWeight: '700', color: '#1A237E', fontSize: 14 },
+  sectionSub: { color: '#78909C' },
+  segments: { marginTop: 4 },
+  input: { backgroundColor: '#FFFFFF' },
+
+  submitBtn: {
+    borderRadius: 10,
+    marginTop: 8,
+    backgroundColor: '#C62828',
+  },
+  submitBtnContent: { paddingVertical: 6 },
+  submitBtnLabel: { fontSize: 16, fontWeight: '700', letterSpacing: 0.4 },
+
+  disclaimer: {
+    textAlign: 'center',
+    color: '#90A4AE',
+    fontSize: 12,
+    marginTop: 4,
+  },
 });
